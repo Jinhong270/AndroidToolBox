@@ -21,7 +21,7 @@ class SshRepository {
     private var sftpChannel: ChannelSftp? = null
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             disconnectInternal()
             val jsch = JSch()
 
@@ -48,7 +48,9 @@ class SshRepository {
             sftpChannel = channel as ChannelSftp
 
             val pwd = sftpChannel?.pwd() ?: "/"
-            pwd
+            Result.success(pwd)
+        } catch (e: Exception) {
+            Result.failure(Exception(formatSshException(e)))
         }
     }
 
@@ -74,7 +76,7 @@ class SshRepository {
 
     suspend fun listFiles(path: String): Result<List<RemoteFile>> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val targetPath = if (path.isBlank()) "/" else path
 
             @Suppress("UNCHECKED_CAST")
@@ -139,7 +141,7 @@ class SshRepository {
 
     suspend fun previewFile(file: RemoteFile, maxBytes: Int = 5242880): Result<FilePreview> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
 
             if (file.isDirectory) {
                 return@runCatching FilePreview(
@@ -237,7 +239,7 @@ class SshRepository {
 
     suspend fun saveFileContent(path: String, content: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val bytes = content.toByteArray(Charsets.UTF_8)
             val inputStream = ByteArrayInputStream(bytes)
             channel.put(inputStream, path, ChannelSftp.OVERWRITE)
@@ -246,7 +248,7 @@ class SshRepository {
 
     suspend fun deleteFileOrFolder(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             if (file.isDirectory) {
                 deleteRecursive(channel, file.path)
             } else {
@@ -274,7 +276,7 @@ class SshRepository {
 
     suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val parentDir = file.path.substringBeforeLast('/', "")
             val newPath = if (parentDir.isEmpty()) "/$newName" else "$parentDir/$newName"
             channel.rename(file.path, newPath)
@@ -283,7 +285,7 @@ class SshRepository {
 
     suspend fun calculateChecksums(file: RemoteFile): Result<ChecksumResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val md5Digest = MessageDigest.getInstance("MD5")
             val sha256Digest = MessageDigest.getInstance("SHA-256")
 
@@ -330,5 +332,37 @@ class SshRepository {
             }
         }
         return nullCount > 0
+    }
+
+    private fun formatSshException(e: Throwable): String {
+        val msg = e.message ?: ""
+        val causeMsg = e.cause?.message ?: ""
+        val fullText = "$msg $causeMsg ${e.javaClass.name}".lowercase()
+
+        return when {
+            fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") -> {
+                "身份认证失败：用户名、密码或 SSH 私钥错误"
+            }
+            fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
+                "主机无法解析：请检查 IP 地址或域名是否正确"
+            }
+            fullText.contains("connection refused") || fullText.contains("connectexception") -> {
+                "连接被拒绝：请检查端口号是否正确，以及服务器 SSH 服务（sshd）是否开启"
+            }
+            fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
+                "连接超时：请检查网络连接、防火墙开放端口或目标 IP 是否可达"
+            }
+            fullText.contains("algorithm negotiation fail") -> {
+                "加密算法协商失败：服务器禁用了兼容算法，请检查 SSH 服务配置"
+            }
+            fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("keyinvalid") -> {
+                "私钥格式错误：输入的 SSH 私钥内容无效"
+            }
+            fullText.contains("network is unreachable") || fullText.contains("no route to host") -> {
+                "网络不可达：请检查手机网络连接或局域网设置"
+            }
+            msg.isNotBlank() -> "连接失败: $msg"
+            else -> "连接失败: 未知网络或系统错误"
+        }
     }
 }
