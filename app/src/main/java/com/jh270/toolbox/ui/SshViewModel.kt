@@ -14,6 +14,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class TerminalRecord(
+    val prompt: String,
+    val command: String,
+    val output: String
+)
+
 data class SshUiState(
     val config: SshConfig = SshConfig(host = "192.168.1.100", port = 22, username = "root"),
     val isConnected: Boolean = false,
@@ -35,7 +41,8 @@ data class SshUiState(
     val showDeleteConfirmDialog: Boolean = false,
     val showCompressDialog: Boolean = false,
     val showTerminalScreen: Boolean = false,
-    val terminalOutput: String = "",
+    val terminalPath: String = "/",
+    val terminalHistory: List<TerminalRecord> = emptyList(),
     val terminalCommandInput: String = "",
     val isExecutingCommand: Boolean = false,
     val isOperatingFile: Boolean = false,
@@ -94,6 +101,7 @@ class SshViewModel(
                         isConnecting = false,
                         isConnected = true,
                         currentPath = pwd,
+                        terminalPath = pwd,
                         connectionError = null
                     )
                 }
@@ -120,7 +128,8 @@ class SshViewModel(
                     fileList = emptyList(),
                     selectedFilePreview = null,
                     actionTargetFile = null,
-                    showTerminalScreen = false
+                    showTerminalScreen = false,
+                    terminalHistory = emptyList()
                 )
             }
         }
@@ -270,29 +279,57 @@ class SshViewModel(
         val cmd = uiState.value.terminalCommandInput.trim()
         if (cmd.isBlank()) return
 
-        val currentOut = uiState.value.terminalOutput
-        val promptCmd = "$ $cmd\n"
+        val state = uiState.value
+        val promptStr = "${state.config.username}@${state.config.host}:${state.terminalPath}$ "
+
         _uiState.update {
             it.copy(
-                terminalOutput = currentOut + promptCmd,
                 terminalCommandInput = "",
                 isExecutingCommand = true
             )
         }
 
         viewModelScope.launch {
-            val result = repository.executeShellCommand(cmd)
+            val fullCmd = if (cmd.startsWith("cd ")) {
+                "cd \"${state.terminalPath}\" && $cmd && pwd"
+            } else {
+                "cd \"${state.terminalPath}\" && $cmd"
+            }
+
+            val result = repository.executeShellCommand(fullCmd)
             result.onSuccess { output ->
+                var newPath = state.terminalPath
+                var cleanOutput = output
+                if (cmd.startsWith("cd ")) {
+                    val lines = output.lines().filter { it.isNotBlank() }
+                    if (lines.isNotEmpty()) {
+                        newPath = lines.last().trim()
+                        cleanOutput = lines.dropLast(1).joinToString("\n")
+                    }
+                }
+
+                val newRecord = TerminalRecord(
+                    prompt = promptStr,
+                    command = cmd,
+                    output = cleanOutput
+                )
+
                 _uiState.update {
                     it.copy(
-                        terminalOutput = it.terminalOutput + output + (if (output.endsWith("\n")) "" else "\n"),
+                        terminalPath = newPath,
+                        terminalHistory = it.terminalHistory + newRecord,
                         isExecutingCommand = false
                     )
                 }
             }.onFailure { error ->
+                val errRecord = TerminalRecord(
+                    prompt = promptStr,
+                    command = cmd,
+                    output = "错误: ${error.message}"
+                )
                 _uiState.update {
                     it.copy(
-                        terminalOutput = it.terminalOutput + "错误: ${error.message}\n",
+                        terminalHistory = it.terminalHistory + errRecord,
                         isExecutingCommand = false
                     )
                 }
