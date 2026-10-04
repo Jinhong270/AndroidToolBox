@@ -1,0 +1,180 @@
+package com.jh270.toolbox.ui
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jh270.toolbox.data.AuthType
+import com.jh270.toolbox.data.FilePreview
+import com.jh270.toolbox.data.RemoteFile
+import com.jh270.toolbox.data.SshConfig
+import com.jh270.toolbox.ssh.SshRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+data class SshUiState(
+    val config: SshConfig = SshConfig(host = "192.168.1.100", port = 22, username = "root"),
+    val isConnected: Boolean = false,
+    val isConnecting: Boolean = false,
+    val connectionError: String? = null,
+    val currentPath: String = "/",
+    val fileList: List<RemoteFile> = emptyList(),
+    val isLoadingFiles: Boolean = false,
+    val fileFetchError: String? = null,
+    val selectedFilePreview: FilePreview? = null,
+    val isPreviewLoading: Boolean = false,
+    val previewError: String? = null,
+    val searchQuery: String = ""
+)
+
+class SshViewModel(
+    private val repository: SshRepository = SshRepository()
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(SshUiState())
+    val uiState: StateFlow<SshUiState> = _uiState.asStateFlow()
+
+    fun updateHost(host: String) {
+        _uiState.update { it.copy(config = it.config.copy(host = host), connectionError = null) }
+    }
+
+    fun updatePort(portStr: String) {
+        val port = portStr.toIntOrNull() ?: 22
+        _uiState.update { it.copy(config = it.config.copy(port = port), connectionError = null) }
+    }
+
+    fun updateUsername(username: String) {
+        _uiState.update { it.copy(config = it.config.copy(username = username), connectionError = null) }
+    }
+
+    fun updatePassword(password: String) {
+        _uiState.update { it.copy(config = it.config.copy(password = password), connectionError = null) }
+    }
+
+    fun updateAuthType(authType: AuthType) {
+        _uiState.update { it.copy(config = it.config.copy(authType = authType), connectionError = null) }
+    }
+
+    fun updatePrivateKey(privateKey: String) {
+        _uiState.update { it.copy(config = it.config.copy(privateKey = privateKey), connectionError = null) }
+    }
+
+    fun connect() {
+        val config = uiState.value.config
+        if (config.host.isBlank()) {
+            _uiState.update { it.copy(connectionError = "Host IP / Domain cannot be empty") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConnecting = true, connectionError = null) }
+            val result = repository.connect(config)
+            result.onSuccess { pwd ->
+                _uiState.update {
+                    it.copy(
+                        isConnecting = false,
+                        isConnected = true,
+                        currentPath = pwd,
+                        connectionError = null
+                    )
+                }
+                loadDirectory(pwd)
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isConnecting = false,
+                        isConnected = false,
+                        connectionError = error.message ?: "Failed to connect to SSH server"
+                    )
+                }
+            }
+        }
+    }
+
+    fun disconnect() {
+        viewModelScope.launch {
+            repository.disconnect()
+            _uiState.update {
+                it.copy(
+                    isConnected = false,
+                    isConnecting = false,
+                    fileList = emptyList(),
+                    selectedFilePreview = null
+                )
+            }
+        }
+    }
+
+    fun loadDirectory(path: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingFiles = true, fileFetchError = null, currentPath = path) }
+            val result = repository.listFiles(path)
+            result.onSuccess { files ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingFiles = false,
+                        fileList = files,
+                        fileFetchError = null
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingFiles = false,
+                        fileFetchError = error.message ?: "Failed to list directory contents"
+                    )
+                }
+            }
+        }
+    }
+
+    fun navigateUp() {
+        val current = uiState.value.currentPath
+        if (current == "/" || current.isBlank()) return
+
+        val parent = current.trimEnd('/').substringBeforeLast('/', "")
+        val targetPath = if (parent.isEmpty()) "/" else parent
+        loadDirectory(targetPath)
+    }
+
+    fun refreshDirectory() {
+        loadDirectory(uiState.value.currentPath)
+    }
+
+    fun previewFile(file: RemoteFile) {
+        if (file.isDirectory) {
+            loadDirectory(file.path)
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPreviewLoading = true, previewError = null, selectedFilePreview = null) }
+            val result = repository.previewFile(file)
+            result.onSuccess { preview ->
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        selectedFilePreview = preview,
+                        previewError = preview.errorMessage
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        previewError = error.message ?: "Failed to preview file"
+                    )
+                }
+            }
+        }
+    }
+
+    fun closePreview() {
+        _uiState.update { it.copy(selectedFilePreview = null, previewError = null, isPreviewLoading = false) }
+    }
+
+    fun updateSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+}
