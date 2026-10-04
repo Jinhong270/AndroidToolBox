@@ -47,9 +47,20 @@ fun FileActionMenuDialog(
     onPreview: () -> Unit,
     onRename: () -> Unit,
     onCalculateChecksum: () -> Unit,
+    onCompress: () -> Unit,
+    onDecompress: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val lowerName = targetFile.name.lowercase()
+    val isArchive = lowerName.endsWith(".zip") ||
+            lowerName.endsWith(".tar.gz") ||
+            lowerName.endsWith(".tgz") ||
+            lowerName.endsWith(".tar") ||
+            lowerName.endsWith(".gz") ||
+            lowerName.endsWith(".rar") ||
+            lowerName.endsWith(".7z")
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -73,11 +84,13 @@ fun FileActionMenuDialog(
                     .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
-                    onClick = onPreview,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("查看 / 编辑内容")
+                if (!targetFile.isDirectory) {
+                    OutlinedButton(
+                        onClick = onPreview,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("查看 / 编辑内容")
+                    }
                 }
 
                 OutlinedButton(
@@ -96,6 +109,22 @@ fun FileActionMenuDialog(
                     }
                 }
 
+                OutlinedButton(
+                    onClick = onCompress,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("压缩")
+                }
+
+                if (!targetFile.isDirectory && isArchive) {
+                    OutlinedButton(
+                        onClick = onDecompress,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("解压")
+                    }
+                }
+
                 Button(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth(),
@@ -111,6 +140,86 @@ fun FileActionMenuDialog(
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun CompressDialog(
+    targetFile: RemoteFile,
+    isOperating: Boolean,
+    errorMessage: String?,
+    onConfirmCompress: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "压缩 ${if (targetFile.isDirectory) "文件夹" else "文件"}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "选择压缩格式：",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                OutlinedButton(
+                    onClick = { onConfirmCompress("zip") },
+                    enabled = !isOperating,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("压缩为 .zip")
+                }
+
+                OutlinedButton(
+                    onClick = { onConfirmCompress("tar.gz") },
+                    enabled = !isOperating,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("压缩为 .tar.gz")
+                }
+
+                if (isOperating) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .height(18.dp)
+                                .width(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text("正在压缩...")
+                    }
+                }
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
                 Text("取消")
             }
         }
