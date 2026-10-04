@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -18,7 +17,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +66,7 @@ fun RemoteFileManagerScreen(
                         onClick = { viewModel.disconnect() },
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        Text("断开")
+                        Text("断开连接")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -92,7 +91,7 @@ fun RemoteFileManagerScreen(
                     onClick = { viewModel.navigateUp() },
                     enabled = uiState.currentPath != "/" && !uiState.isLoadingFiles
                 ) {
-                    Text("⬆️ 上级")
+                    Text("返回上级")
                 }
 
                 OutlinedTextField(
@@ -107,14 +106,14 @@ fun RemoteFileManagerScreen(
                     onClick = { viewModel.loadDirectory(editingPath) },
                     enabled = !uiState.isLoadingFiles
                 ) {
-                    Text("转到")
+                    Text("跳转")
                 }
 
-                IconButton(
+                Button(
                     onClick = { viewModel.refreshDirectory() },
                     enabled = !uiState.isLoadingFiles
                 ) {
-                    Text("🔄")
+                    Text("刷新")
                 }
             }
 
@@ -211,6 +210,12 @@ fun RemoteFileManagerScreen(
             filePreview = uiState.selectedFilePreview,
             isLoading = uiState.isPreviewLoading,
             errorMessage = uiState.previewError,
+            isSaving = uiState.isSavingFile,
+            saveSuccessMessage = uiState.saveSuccessMessage,
+            saveErrorMessage = uiState.saveErrorMessage,
+            onSaveContent = { path, content ->
+                viewModel.saveFileContent(path, content)
+            },
             onDismiss = { viewModel.closePreview() }
         )
     }
@@ -237,10 +242,20 @@ fun RemoteFileRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val typeTag = when (file.fileType) {
+                FileType.DIRECTORY -> "[文件夹]"
+                FileType.TEXT -> "[文本]"
+                FileType.IMAGE -> "[图片]"
+                FileType.BINARY -> "[二进制]"
+                FileType.UNKNOWN -> "[文件]"
+            }
+
             Text(
-                text = if (file.isDirectory) "📁" else "📄",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(end = 12.dp)
+                text = typeTag,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 10.dp)
             )
 
             Column(modifier = Modifier.weight(1f)) {
