@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -60,7 +61,15 @@ fun SshConnectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ToolBox - SSH文件管理器", fontWeight = FontWeight.Bold) },
+                title = { Text("SSH 文件管理器", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    OutlinedButton(
+                        onClick = { viewModel.returnToHome() },
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text("主页")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -80,12 +89,13 @@ fun SshConnectionScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                ),
+                shape = MaterialTheme.shapes.large
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .padding(20.dp)
                 ) {
                     Text(
                         text = "SSH 远程设备连接配置",

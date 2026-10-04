@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+enum class AppScreen {
+    HOME,
+    SSH_MANAGER
+}
+
 data class TerminalRecord(
     val prompt: String,
     val command: String,
@@ -21,6 +26,7 @@ data class TerminalRecord(
 )
 
 data class SshUiState(
+    val currentScreen: AppScreen = AppScreen.HOME,
     val config: SshConfig = SshConfig(host = "192.168.1.100", port = 22, username = "root"),
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
@@ -59,6 +65,28 @@ class SshViewModel(
 
     private val _uiState = MutableStateFlow(SshUiState())
     val uiState: StateFlow<SshUiState> = _uiState.asStateFlow()
+
+    fun selectScreen(screen: AppScreen) {
+        _uiState.update { it.copy(currentScreen = screen) }
+    }
+
+    fun returnToHome() {
+        viewModelScope.launch {
+            repository.disconnect()
+            _uiState.update {
+                it.copy(
+                    currentScreen = AppScreen.HOME,
+                    isConnected = false,
+                    isConnecting = false,
+                    fileList = emptyList(),
+                    selectedFilePreview = null,
+                    actionTargetFile = null,
+                    showTerminalScreen = false,
+                    terminalHistory = emptyList()
+                )
+            }
+        }
+    }
 
     fun updateHost(host: String) {
         _uiState.update { it.copy(config = it.config.copy(host = host), connectionError = null) }
