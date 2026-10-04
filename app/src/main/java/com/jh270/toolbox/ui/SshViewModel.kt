@@ -311,12 +311,29 @@ class SshViewModel(
         val cmd = uiState.value.terminalCommandInput.trim()
         if (cmd.isBlank()) return
 
+        if (cmd.lowercase() == "clear") {
+            _uiState.update {
+                it.copy(
+                    terminalCommandInput = "",
+                    terminalHistory = emptyList()
+                )
+            }
+            return
+        }
+
         val state = uiState.value
         val promptStr = "${state.config.username}@${state.config.host}:${state.terminalPath}$ "
+
+        val newRecord = TerminalRecord(
+            prompt = promptStr,
+            command = cmd,
+            output = ""
+        )
 
         _uiState.update {
             it.copy(
                 terminalCommandInput = "",
+                terminalHistory = it.terminalHistory + newRecord,
                 isExecutingCommand = true
             )
         }
@@ -328,40 +345,62 @@ class SshViewModel(
                 "cd \"${state.terminalPath}\" && $cmd"
             }
 
-            val result = repository.executeShellCommand(fullCmd)
-            result.onSuccess { output ->
-                var newPath = state.terminalPath
-                var cleanOutput = output
-                if (cmd.startsWith("cd ")) {
-                    val lines = output.lines().filter { it.isNotBlank() }
-                    if (lines.isNotEmpty()) {
-                        newPath = lines.last().trim()
-                        cleanOutput = lines.dropLast(1).joinToString("\n")
+            var accumulatedOutput = ""
+
+            val result = repository.executeShellCommandStreaming(fullCmd) { chunk ->
+                accumulatedOutput += chunk
+                _uiState.update { st ->
+                    val list = st.terminalHistory.toMutableList()
+                    if (list.isNotEmpty()) {
+                        val lastIdx = list.size - 1
+                        val currentRec = list[lastIdx]
+                        var curOutput = accumulatedOutput
+
+                        if (cmd.startsWith("cd ")) {
+                            val lines = accumulatedOutput.lines().filter { it.isNotBlank() }
+                            if (lines.isNotEmpty()) {
+                                curOutput = lines.dropLast(1).joinToString("\n")
+                            }
+                        }
+
+                        list[lastIdx] = currentRec.copy(output = curOutput)
                     }
+                    st.copy(terminalHistory = list)
                 }
+            }
 
-                val newRecord = TerminalRecord(
-                    prompt = promptStr,
-                    command = cmd,
-                    output = cleanOutput
-                )
-
-                _uiState.update {
-                    it.copy(
-                        terminalPath = newPath,
-                        terminalHistory = it.terminalHistory + newRecord,
+            result.onSuccess {
+                _uiState.update { st ->
+                    var finalPath = st.terminalPath
+                    val list = st.terminalHistory.toMutableList()
+                    if (list.isNotEmpty()) {
+                        val lastIdx = list.size - 1
+                        val currentRec = list[lastIdx]
+                        if (cmd.startsWith("cd ")) {
+                            val lines = accumulatedOutput.lines().filter { it.isNotBlank() }
+                            if (lines.isNotEmpty()) {
+                                finalPath = lines.last().trim()
+                                val cleanOut = lines.dropLast(1).joinToString("\n")
+                                list[lastIdx] = currentRec.copy(output = cleanOut)
+                            }
+                        }
+                    }
+                    st.copy(
+                        terminalPath = finalPath,
+                        terminalHistory = list,
                         isExecutingCommand = false
                     )
                 }
             }.onFailure { error ->
-                val errRecord = TerminalRecord(
-                    prompt = promptStr,
-                    command = cmd,
-                    output = "错误: ${error.message}"
-                )
-                _uiState.update {
-                    it.copy(
-                        terminalHistory = it.terminalHistory + errRecord,
+                _uiState.update { st ->
+                    val list = st.terminalHistory.toMutableList()
+                    if (list.isNotEmpty()) {
+                        val lastIdx = list.size - 1
+                        val currentRec = list[lastIdx]
+                        list[lastIdx] = currentRec.copy(output = currentRec.output + "\n错误: ${error.message}")
+                    }
+                    st.copy(
+                        terminalHistory = list,
                         isExecutingCommand = false
                     )
                 }
