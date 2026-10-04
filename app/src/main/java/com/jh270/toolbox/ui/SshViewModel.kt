@@ -3,6 +3,7 @@ package com.jh270.toolbox.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jh270.toolbox.data.AuthType
+import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
@@ -28,6 +29,15 @@ data class SshUiState(
     val isSavingFile: Boolean = false,
     val saveSuccessMessage: String? = null,
     val saveErrorMessage: String? = null,
+    val actionTargetFile: RemoteFile? = null,
+    val showActionMenu: Boolean = false,
+    val showRenameDialog: Boolean = false,
+    val showDeleteConfirmDialog: Boolean = false,
+    val isOperatingFile: Boolean = false,
+    val isCalculatingChecksum: Boolean = false,
+    val checksumResult: ChecksumResult? = null,
+    val actionSuccessMessage: String? = null,
+    val actionErrorMessage: String? = null,
     val searchQuery: String = ""
 )
 
@@ -103,7 +113,8 @@ class SshViewModel(
                     isConnected = false,
                     isConnecting = false,
                     fileList = emptyList(),
-                    selectedFilePreview = null
+                    selectedFilePreview = null,
+                    actionTargetFile = null
                 )
             }
         }
@@ -197,8 +208,128 @@ class SshViewModel(
         }
     }
 
-    fun clearSaveMessages() {
-        _uiState.update { it.copy(saveSuccessMessage = null, saveErrorMessage = null) }
+    fun selectFileForAction(file: RemoteFile) {
+        if (file.name == "..") return
+        _uiState.update {
+            it.copy(
+                actionTargetFile = file,
+                showActionMenu = true,
+                actionErrorMessage = null,
+                actionSuccessMessage = null
+            )
+        }
+    }
+
+    fun closeActionMenu() {
+        _uiState.update { it.copy(showActionMenu = false) }
+    }
+
+    fun openRenameDialog() {
+        _uiState.update { it.copy(showActionMenu = false, showRenameDialog = true) }
+    }
+
+    fun closeRenameDialog() {
+        _uiState.update { it.copy(showRenameDialog = false) }
+    }
+
+    fun openDeleteConfirmDialog() {
+        _uiState.update { it.copy(showActionMenu = false, showDeleteConfirmDialog = true) }
+    }
+
+    fun closeDeleteConfirmDialog() {
+        _uiState.update { it.copy(showDeleteConfirmDialog = false) }
+    }
+
+    fun executeDeleteFile() {
+        val target = uiState.value.actionTargetFile ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
+            val result = repository.deleteFileOrFolder(target)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        showDeleteConfirmDialog = false,
+                        actionTargetFile = null,
+                        actionSuccessMessage = "删除成功"
+                    )
+                }
+                refreshDirectory()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        actionErrorMessage = error.message ?: "删除失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun executeRenameFile(newName: String) {
+        val target = uiState.value.actionTargetFile ?: return
+        if (newName.isBlank() || newName == target.name) {
+            closeRenameDialog()
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
+            val result = repository.renameFileOrFolder(target, newName)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        showRenameDialog = false,
+                        actionTargetFile = null,
+                        actionSuccessMessage = "重命名成功"
+                    )
+                }
+                refreshDirectory()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        actionErrorMessage = error.message ?: "重命名失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun executeCalculateChecksum() {
+        val target = uiState.value.actionTargetFile ?: return
+        _uiState.update {
+            it.copy(
+                showActionMenu = false,
+                isCalculatingChecksum = true,
+                checksumResult = null,
+                actionErrorMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            val result = repository.calculateChecksums(target)
+            result.onSuccess { checksums ->
+                _uiState.update {
+                    it.copy(
+                        isCalculatingChecksum = false,
+                        checksumResult = checksums
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isCalculatingChecksum = false,
+                        actionErrorMessage = error.message ?: "校验计算失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeChecksumDialog() {
+        _uiState.update { it.copy(checksumResult = null, isCalculatingChecksum = false) }
     }
 
     fun closePreview() {

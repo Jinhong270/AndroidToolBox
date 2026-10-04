@@ -4,6 +4,7 @@ import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jh270.toolbox.data.AuthType
+import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
@@ -12,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.Vector
 
 class SshRepository {
@@ -239,6 +241,71 @@ class SshRepository {
             val bytes = content.toByteArray(Charsets.UTF_8)
             val inputStream = ByteArrayInputStream(bytes)
             channel.put(inputStream, path, ChannelSftp.OVERWRITE)
+        }
+    }
+
+    suspend fun deleteFileOrFolder(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            if (file.isDirectory) {
+                deleteRecursive(channel, file.path)
+            } else {
+                channel.rm(file.path)
+            }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun deleteRecursive(channel: ChannelSftp, path: String) {
+        val attrs = channel.stat(path)
+        if (attrs.isDir) {
+            val entries = channel.ls(path) as Vector<ChannelSftp.LsEntry>
+            for (entry in entries) {
+                val name = entry.filename
+                if (name == "." || name == "..") continue
+                val childPath = if (path.endsWith("/")) "$path$name" else "$path/$name"
+                deleteRecursive(channel, childPath)
+            }
+            channel.rmdir(path)
+        } else {
+            channel.rm(path)
+        }
+    }
+
+    suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val parentDir = file.path.substringBeforeLast('/', "")
+            val newPath = if (parentDir.isEmpty()) "/$newName" else "$parentDir/$newName"
+            channel.rename(file.path, newPath)
+        }
+    }
+
+    suspend fun calculateChecksums(file: RemoteFile): Result<ChecksumResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val md5Digest = MessageDigest.getInstance("MD5")
+            val sha256Digest = MessageDigest.getInstance("SHA-256")
+
+            val inputStream = channel.get(file.path)
+            val buffer = ByteArray(16384)
+            var read: Int
+
+            while (inputStream.read(buffer).also { read = it } != -1) {
+                md5Digest.update(buffer, 0, read)
+                sha256Digest.update(buffer, 0, read)
+            }
+            inputStream.close()
+
+            val md5Hex = md5Digest.digest().joinToString("") { "%02x".format(it) }
+            val sha256Hex = sha256Digest.digest().joinToString("") { "%02x".format(it) }
+
+            ChecksumResult(
+                fileName = file.name,
+                filePath = file.path,
+                md5 = md5Hex,
+                sha256 = sha256Hex
+            )
         }
     }
 
