@@ -46,5 +46,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.jsch)
     implementation(libs.eddsa)
+    implementation(libs.bcprov)
+    implementation(libs.bcpkix)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
