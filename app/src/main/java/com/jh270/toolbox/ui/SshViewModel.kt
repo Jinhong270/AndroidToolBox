@@ -34,6 +34,10 @@ data class SshUiState(
     val showRenameDialog: Boolean = false,
     val showDeleteConfirmDialog: Boolean = false,
     val showCompressDialog: Boolean = false,
+    val showTerminalScreen: Boolean = false,
+    val terminalOutput: String = "",
+    val terminalCommandInput: String = "",
+    val isExecutingCommand: Boolean = false,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
     val checksumResult: ChecksumResult? = null,
@@ -115,7 +119,8 @@ class SshViewModel(
                     isConnecting = false,
                     fileList = emptyList(),
                     selectedFilePreview = null,
-                    actionTargetFile = null
+                    actionTargetFile = null,
+                    showTerminalScreen = false
                 )
             }
         }
@@ -247,6 +252,52 @@ class SshViewModel(
 
     fun closeCompressDialog() {
         _uiState.update { it.copy(showCompressDialog = false) }
+    }
+
+    fun openTerminal() {
+        _uiState.update { it.copy(showTerminalScreen = true) }
+    }
+
+    fun closeTerminal() {
+        _uiState.update { it.copy(showTerminalScreen = false) }
+    }
+
+    fun updateTerminalCommand(cmd: String) {
+        _uiState.update { it.copy(terminalCommandInput = cmd) }
+    }
+
+    fun runTerminalCommand() {
+        val cmd = uiState.value.terminalCommandInput.trim()
+        if (cmd.isBlank()) return
+
+        val currentOut = uiState.value.terminalOutput
+        val promptCmd = "$ $cmd\n"
+        _uiState.update {
+            it.copy(
+                terminalOutput = currentOut + promptCmd,
+                terminalCommandInput = "",
+                isExecutingCommand = true
+            )
+        }
+
+        viewModelScope.launch {
+            val result = repository.executeShellCommand(cmd)
+            result.onSuccess { output ->
+                _uiState.update {
+                    it.copy(
+                        terminalOutput = it.terminalOutput + output + (if (output.endsWith("\n")) "" else "\n"),
+                        isExecutingCommand = false
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        terminalOutput = it.terminalOutput + "错误: ${error.message}\n",
+                        isExecutingCommand = false
+                    )
+                }
+            }
+        }
     }
 
     fun executeDeleteFile() {

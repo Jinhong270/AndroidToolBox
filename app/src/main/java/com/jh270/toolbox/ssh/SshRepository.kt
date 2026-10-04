@@ -345,6 +345,37 @@ class SshRepository {
         }
     }
 
+    suspend fun executeShellCommand(command: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
+            channel.setCommand(command)
+            val errStream = ByteArrayOutputStream()
+            channel.setErrStream(errStream)
+            val inStream = channel.inputStream
+            channel.connect(15000)
+
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(4096)
+            var read: Int
+            while (inStream.read(buffer).also { read = it } != -1) {
+                output.write(buffer, 0, read)
+            }
+            channel.disconnect()
+
+            val outStr = output.toString(Charsets.UTF_8.name())
+            val errStr = errStream.toString(Charsets.UTF_8.name())
+            if (errStr.isNotBlank() && outStr.isBlank()) {
+                throw RuntimeException(errStr)
+            }
+            if (errStr.isNotBlank()) {
+                "$outStr\n$errStr"
+            } else {
+                outStr
+            }
+        }
+    }
+
     private fun executeSshCommand(sess: Session, command: String) {
         val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
         channel.setCommand(command)

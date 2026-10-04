@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">ToolBox</string>
+    <string name="ssh_file_manager">SSH File Manager</string>
+    <string name="connect_ssh">Connect SSH Device</string>
+    <string name="host_placeholder">Host IP or Domain</string>
+    <string name="port">Port</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="private_key">Private Key</string>
+    <string name="auth_type">Authentication Type</string>
+    <string name="password_auth">Password</string>
+    <string name="key_auth">Private Key</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="refresh">Refresh</string>
+    <string name="current_path">Current Path</string>
+    <string name="search_placeholder">Search files...</string>
+    <string name="terminal">Terminal</string>
+    <string name="user_agreement">User Agreement</string>
+    <string name="agreement_title">Terms of Use &amp; Privacy Notice</string>
+    <string name="agreement_content">ToolBox is an open-source SSH file manager and diagnostic utility. All connections, credentials, and file transfers are executed directly between your device and your remote server. No credentials or data are collected or transmitted to third parties. By using this application, you agree to use it responsibly.</string>
+    <string name="accept">Accept</string>
 </resources>
