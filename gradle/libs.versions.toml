@@ -10,6 +10,7 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 jsch = "0.2.23"
 eddsa = "0.3.0"
+bcprov = "1.78"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -29,6 +30,8 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 jsch = { group = "com.github.mwiede", name = "jsch", version.ref = "jsch" }
 eddsa = { group = "net.i2p.crypto", name = "eddsa", version.ref = "eddsa" }
+bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bcprov" }
+bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bcprov" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,5 +1,6 @@
 package com.jh270.toolbox.ssh
 
+import android.util.Log
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -14,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.security.MessageDigest
 import java.util.Vector
 
@@ -22,14 +24,32 @@ class SshRepository {
     private var sftpChannel: ChannelSftp? = null
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
+        var tempKeyFile: File? = null
         try {
             disconnectInternal()
             val jsch = JSch()
 
+            try {
+                java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+                java.security.Security.addProvider(net.i2p.crypto.eddsa.EdDSASecurityProvider())
+            } catch (_: Exception) {}
+
+            Log.d("SshRepository", "Connecting to host=${config.host}, port=${config.port}, user=${config.username}, authType=${config.authType}")
+
             if (config.authType == AuthType.PRIVATE_KEY && config.privateKey.isNotBlank()) {
-                val prvKeyBytes = config.privateKey.trim().toByteArray(Charsets.UTF_8)
-                val passphraseBytes = if (config.passphrase.isNotBlank()) config.passphrase.toByteArray(Charsets.UTF_8) else null
-                jsch.addIdentity("customKey", prvKeyBytes, null, passphraseBytes)
+                tempKeyFile = File.createTempFile("ssh_private_key", ".pem")
+                tempKeyFile.writeText(config.privateKey.trim(), Charsets.UTF_8)
+                tempKeyFile.setReadable(false, false)
+                tempKeyFile.setReadable(true, true)
+
+                Log.d("SshRepository", "Created temp key file: ${tempKeyFile.absolutePath}, size: ${tempKeyFile.length()}")
+
+                if (config.passphrase.isNotBlank()) {
+                    jsch.addIdentity(tempKeyFile.absolutePath, config.passphrase)
+                } else {
+                    jsch.addIdentity(tempKeyFile.absolutePath)
+                }
+                Log.d("SshRepository", "Identity added successfully from file")
             }
 
             val newSession = jsch.getSession(config.username, config.host, config.port)
@@ -52,7 +72,12 @@ class SshRepository {
             val pwd = sftpChannel?.pwd() ?: "/"
             Result.success(pwd)
         } catch (e: Exception) {
+            Log.e("SshRepository", "SSH connection exception", e)
             Result.failure(Exception(formatSshException(e)))
+        } finally {
+            try {
+                tempKeyFile?.delete()
+            } catch (_: Exception) {}
         }
     }
 
@@ -437,6 +462,8 @@ class SshRepository {
         val causeMsg = e.cause?.message ?: ""
         val fullText = "$msg $causeMsg ${e.javaClass.name}".lowercase()
 
+        Log.e("SshRepository", "Formatting SSH exception: $fullText", e)
+
         return when {
             fullText.contains("no route to host") || fullText.contains("noroute") || fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
                 "地址错误"
@@ -444,8 +471,8 @@ class SshRepository {
             fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
                 "连接超时"
             }
-            fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") -> {
-                "身份认证失败：用户名, 密码或 SSH 私钥错误"
+            fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") || fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("keyinvalid") -> {
+                "身份认证失败：用户名、密码或 SSH 私钥/密码错误"
             }
             fullText.contains("connection refused") || fullText.contains("connectexception") -> {
                 "连接被拒绝：请检查端口号是否正确，以及服务器 SSH 服务（sshd）是否开启"
@@ -453,14 +480,11 @@ class SshRepository {
             fullText.contains("algorithm negotiation fail") -> {
                 "加密算法协商失败：服务器禁用了兼容算法，请检查 SSH 服务配置"
             }
-            fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("keyinvalid") -> {
-                "私钥格式错误：输入的 SSH 私钥内容无效"
-            }
             fullText.contains("network is unreachable") -> {
                 "网络不可达：请检查手机网络连接或局域网设置"
             }
             msg.isNotBlank() -> "连接失败: $msg"
-            else -> "连接失败: 未知网络或系统错误"
+            else -> "连接失败: Unknown error"
         }
     }
 }
