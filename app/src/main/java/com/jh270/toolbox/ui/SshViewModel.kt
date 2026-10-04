@@ -247,14 +247,16 @@ class SshViewModel(
             val result = repository.deleteFileOrFolder(target)
             result.onSuccess {
                 _uiState.update {
+                    val updatedList = it.fileList.filter { file -> file.path != target.path }
                     it.copy(
                         isOperatingFile = false,
                         showDeleteConfirmDialog = false,
                         actionTargetFile = null,
+                        fileList = updatedList,
                         actionSuccessMessage = "删除成功"
                     )
                 }
-                refreshDirectory()
+                silentRefreshDirectory()
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(
@@ -262,6 +264,16 @@ class SshViewModel(
                         actionErrorMessage = error.message ?: "删除失败"
                     )
                 }
+            }
+        }
+    }
+
+    private fun silentRefreshDirectory() {
+        val path = uiState.value.currentPath
+        viewModelScope.launch {
+            val result = repository.listFiles(path)
+            result.onSuccess { files ->
+                _uiState.update { it.copy(fileList = files) }
             }
         }
     }

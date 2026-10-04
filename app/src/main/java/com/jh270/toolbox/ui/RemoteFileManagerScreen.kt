@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +51,11 @@ fun RemoteFileManagerScreen(
 ) {
     val context = LocalContext.current
     var editingPath by remember(uiState.currentPath) { mutableStateOf(uiState.currentPath) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(uiState.currentPath) {
+        listState.scrollToItem(0)
+    }
 
     LaunchedEffect(uiState.actionSuccessMessage) {
         if (uiState.actionSuccessMessage != null) {
@@ -167,7 +174,7 @@ fun RemoteFileManagerScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            if (uiState.isLoadingFiles) {
+            if (uiState.isLoadingFiles && uiState.fileList.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -181,36 +188,40 @@ fun RemoteFileManagerScreen(
                     }
                 }
             } else {
-                val filteredFiles = uiState.fileList.filter {
-                    if (it.name == "..") true
-                    else if (uiState.searchQuery.isBlank()) true
-                    else it.name.contains(uiState.searchQuery, ignoreCase = true)
-                }
-
-                if (filteredFiles.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "未搜索到匹配的文件" else "此目录为空",
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                Column(modifier = Modifier.weight(1f)) {
+                    if (uiState.isLoadingFiles) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        items(filteredFiles, key = { it.path }) { file ->
-                            RemoteFileRow(
-                                file = file,
-                                onClick = { viewModel.previewFile(file) },
-                                onLongClick = { viewModel.selectFileForAction(file) }
+
+                    val filteredFiles = uiState.fileList.filter {
+                        if (it.name == "..") true
+                        else if (uiState.searchQuery.isBlank()) true
+                        else it.name.contains(uiState.searchQuery, ignoreCase = true)
+                    }
+
+                    if (filteredFiles.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (uiState.searchQuery.isNotBlank()) "未搜索到匹配的文件" else "此目录为空",
+                                color = MaterialTheme.colorScheme.outline
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(filteredFiles, key = { it.path }) { file ->
+                                RemoteFileRow(
+                                    file = file,
+                                    onClick = { viewModel.previewFile(file) },
+                                    onLongClick = { viewModel.selectFileForAction(file) }
+                                )
+                            }
                         }
                     }
                 }
