@@ -113,6 +113,10 @@ class SshViewModel(
         _uiState.update { it.copy(config = it.config.copy(privateKey = privateKey), connectionError = null) }
     }
 
+    fun updatePassphrase(passphrase: String) {
+        _uiState.update { it.copy(config = it.config.copy(passphrase = passphrase), connectionError = null) }
+    }
+
     fun connect() {
         val config = uiState.value.config
         if (config.host.isBlank()) {
