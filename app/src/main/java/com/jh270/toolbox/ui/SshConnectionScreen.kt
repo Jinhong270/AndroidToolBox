@@ -195,6 +195,15 @@ fun SshConnectionScreen(
                             minLines = 3,
                             maxLines = 6
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = uiState.config.passphrase,
+                            onValueChange = { viewModel.updatePassphrase(it) },
+                            label = { Text("私钥密码 (选填，若私钥已加密)") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))

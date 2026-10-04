@@ -26,8 +26,9 @@ class SshRepository {
             val jsch = JSch()
 
             if (config.authType == AuthType.PRIVATE_KEY && config.privateKey.isNotBlank()) {
-                val prvKeyBytes = config.privateKey.toByteArray(Charsets.UTF_8)
-                jsch.addIdentity("customKey", prvKeyBytes, null, null)
+                val prvKeyBytes = config.privateKey.trim().toByteArray(Charsets.UTF_8)
+                val passphraseBytes = if (config.passphrase.isNotBlank()) config.passphrase.toByteArray(Charsets.UTF_8) else null
+                jsch.addIdentity("customKey", prvKeyBytes, null, passphraseBytes)
             }
 
             val newSession = jsch.getSession(config.username, config.host, config.port)

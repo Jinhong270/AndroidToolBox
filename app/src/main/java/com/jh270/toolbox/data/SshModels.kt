@@ -19,7 +19,8 @@ data class SshConfig(
     val username: String = "root",
     val password: String = "",
     val authType: AuthType = AuthType.PASSWORD,
-    val privateKey: String = ""
+    val privateKey: String = "",
+    val passphrase: String = ""
 )
 
 data class RemoteFile(
