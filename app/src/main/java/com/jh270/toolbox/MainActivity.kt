@@ -14,10 +14,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jh270.toolbox.ui.AppScreen
 import com.jh270.toolbox.ui.RemoteFileManagerScreen
 import com.jh270.toolbox.ui.SshConnectionScreen
 import com.jh270.toolbox.ui.SshTerminalScreen
 import com.jh270.toolbox.ui.SshViewModel
+import com.jh270.toolbox.ui.ToolBoxHomeScreen
 import com.jh270.toolbox.ui.UserAgreementDialog
 import com.jh270.toolbox.ui.theme.ToolBoxTheme
 
@@ -42,21 +44,32 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (uiState.showTerminalScreen) {
-                        SshTerminalScreen(
-                            viewModel = sshViewModel,
-                            uiState = uiState
-                        )
-                    } else if (uiState.isConnected) {
-                        RemoteFileManagerScreen(
-                            viewModel = sshViewModel,
-                            uiState = uiState
-                        )
-                    } else {
-                        SshConnectionScreen(
-                            viewModel = sshViewModel,
-                            uiState = uiState
-                        )
+                    when {
+                        uiState.currentScreen == AppScreen.HOME -> {
+                            ToolBoxHomeScreen(
+                                onSelectSshFileManager = {
+                                    sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
+                                }
+                            )
+                        }
+                        uiState.showTerminalScreen -> {
+                            SshTerminalScreen(
+                                viewModel = sshViewModel,
+                                uiState = uiState
+                            )
+                        }
+                        uiState.isConnected -> {
+                            RemoteFileManagerScreen(
+                                viewModel = sshViewModel,
+                                uiState = uiState
+                            )
+                        }
+                        else -> {
+                            SshConnectionScreen(
+                                viewModel = sshViewModel,
+                                uiState = uiState
+                            )
+                        }
                     }
                 }
             }
