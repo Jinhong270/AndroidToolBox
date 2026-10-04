@@ -11,12 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,10 +45,13 @@ fun SshTerminalScreen(
     viewModel: SshViewModel,
     uiState: SshUiState
 ) {
-    val outputScrollState = rememberScrollState()
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(uiState.terminalOutput) {
-        outputScrollState.animateScrollTo(outputScrollState.maxValue)
+    LaunchedEffect(uiState.terminalHistory.size, uiState.isExecutingCommand) {
+        val totalItems = uiState.terminalHistory.size + if (uiState.isExecutingCommand) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
+        }
     }
 
     Scaffold(
@@ -56,12 +60,12 @@ fun SshTerminalScreen(
                 title = {
                     Column {
                         Text(
-                            text = "SSH 远程终端",
+                            text = "SSH 终端",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${uiState.config.username}@${uiState.config.host}:${uiState.config.port}",
+                            text = "${uiState.config.username}@${uiState.config.host}:${uiState.terminalPath}",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -87,51 +91,72 @@ fun SshTerminalScreen(
                 .padding(padding)
                 .padding(12.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                OutlinedButton(onClick = { viewModel.updateTerminalCommand("ls -la"); viewModel.runTerminalCommand() }) {
-                    Text("ls")
-                }
-                OutlinedButton(onClick = { viewModel.updateTerminalCommand("pwd"); viewModel.runTerminalCommand() }) {
-                    Text("pwd")
-                }
-                OutlinedButton(onClick = { viewModel.updateTerminalCommand("df -h"); viewModel.runTerminalCommand() }) {
-                    Text("df")
-                }
-                OutlinedButton(onClick = { viewModel.updateTerminalCommand("free -h"); viewModel.runTerminalCommand() }) {
-                    Text("free")
-                }
-                OutlinedButton(onClick = { viewModel.updateTerminalCommand("uname -a"); viewModel.runTerminalCommand() }) {
-                    Text("uname")
-                }
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .background(
-                        color = Color(0xFF1E1E1E),
+                        color = Color(0xFF0F172A),
                         shape = RoundedCornerShape(8.dp)
                     )
                     .padding(12.dp)
-                    .verticalScroll(outputScrollState)
             ) {
                 SelectionContainer {
-                    Text(
-                        text = uiState.terminalOutput.ifEmpty { "连接成功。在此输入并执行远程 Shell 命令...\n" },
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        color = Color(0xFFD4D4D4)
-                    )
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(uiState.terminalHistory) { record ->
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Text(
+                                    text = "${record.prompt}${record.command}",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8)
+                                )
+                                if (record.output.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = record.output,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFE2E8F0)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (uiState.isExecutingCommand) {
+                            item {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .height(14.dp)
+                                            .width(14.dp),
+                                        color = Color(0xFF38BDF8),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "正在执行命令...",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            val currentPrompt = "${uiState.config.username}@${uiState.config.host}:${uiState.terminalPath}$ "
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -141,9 +166,13 @@ fun SshTerminalScreen(
                 OutlinedTextField(
                     value = uiState.terminalCommandInput,
                     onValueChange = { viewModel.updateTerminalCommand(it) },
-                    placeholder = { Text("输入 shell 命令 (例如: htop, ps aux)") },
+                    label = { Text(currentPrompt) },
+                    placeholder = { Text("输入命令...") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace
+                    ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(
                         onSend = { viewModel.runTerminalCommand() }
@@ -152,19 +181,9 @@ fun SshTerminalScreen(
 
                 Button(
                     onClick = { viewModel.runTerminalCommand() },
-                    enabled = !uiState.isExecutingCommand
+                    enabled = !uiState.isExecutingCommand && uiState.terminalCommandInput.isNotBlank()
                 ) {
-                    if (uiState.isExecutingCommand) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .height(16.dp)
-                                .width(16.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text("执行")
-                    }
+                    Text("执行")
                 }
             }
         }
