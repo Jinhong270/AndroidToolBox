@@ -171,7 +171,8 @@ fun RemoteFileManagerScreen(
                 }
             } else {
                 val filteredFiles = uiState.fileList.filter {
-                    if (uiState.searchQuery.isBlank()) true
+                    if (it.name == "..") true
+                    else if (uiState.searchQuery.isBlank()) true
                     else it.name.contains(uiState.searchQuery, ignoreCase = true)
                 }
 
@@ -267,27 +268,35 @@ fun RemoteFileRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                if (file.name == "..") {
                     Text(
-                        text = if (file.isDirectory) "文件夹" else formatFileSize(file.size),
+                        text = "返回上级目录 (${file.path})",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.primary
                     )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (file.isDirectory) "文件夹" else formatFileSize(file.size),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = file.permissions,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
-                        text = file.permissions,
+                        text = formatDate(file.modifiedTime),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
-                Spacer(modifier = Modifier.height(1.dp))
-                Text(
-                    text = formatDate(file.modifiedTime),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
             }
         }
     }

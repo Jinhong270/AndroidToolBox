@@ -78,7 +78,7 @@ class SshRepository {
             @Suppress("UNCHECKED_CAST")
             val entries = channel.ls(targetPath) as Vector<ChannelSftp.LsEntry>
 
-            val result = mutableListOf<RemoteFile>()
+            val fileItems = mutableListOf<RemoteFile>()
             for (entry in entries) {
                 val name = entry.filename
                 if (name == "." || name == "..") continue
@@ -97,7 +97,7 @@ class SshRepository {
 
                 val type = determineFileType(name, isDir)
 
-                result.add(
+                fileItems.add(
                     RemoteFile(
                         name = name,
                         path = fullPath,
@@ -110,8 +110,28 @@ class SshRepository {
                 )
             }
 
-            result.sortWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-            result
+            fileItems.sortWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+
+            val finalResult = mutableListOf<RemoteFile>()
+            val normalizedPath = targetPath.trimEnd('/')
+            if (normalizedPath.isNotEmpty() && normalizedPath != "/") {
+                val parent = normalizedPath.substringBeforeLast('/', "")
+                val parentPath = if (parent.isEmpty()) "/" else parent
+                finalResult.add(
+                    RemoteFile(
+                        name = "..",
+                        path = parentPath,
+                        isDirectory = true,
+                        size = 0,
+                        permissions = "drwxr-xr-x",
+                        modifiedTime = 0,
+                        fileType = FileType.DIRECTORY
+                    )
+                )
+            }
+
+            finalResult.addAll(fileItems)
+            finalResult
         }
     }
 
