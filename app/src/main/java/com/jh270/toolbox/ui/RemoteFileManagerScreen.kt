@@ -1,6 +1,8 @@
 package com.jh270.toolbox.ui
 
-import androidx.compose.foundation.clickable
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +27,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,7 +47,14 @@ fun RemoteFileManagerScreen(
     viewModel: SshViewModel,
     uiState: SshUiState
 ) {
+    val context = LocalContext.current
     var editingPath by remember(uiState.currentPath) { mutableStateOf(uiState.currentPath) }
+
+    LaunchedEffect(uiState.actionSuccessMessage) {
+        if (uiState.actionSuccessMessage != null) {
+            Toast.makeText(context, uiState.actionSuccessMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -197,7 +208,8 @@ fun RemoteFileManagerScreen(
                         items(filteredFiles, key = { it.path }) { file ->
                             RemoteFileRow(
                                 file = file,
-                                onClick = { viewModel.previewFile(file) }
+                                onClick = { viewModel.previewFile(file) },
+                                onLongClick = { viewModel.selectFileForAction(file) }
                             )
                         }
                     }
@@ -220,18 +232,67 @@ fun RemoteFileManagerScreen(
             onDismiss = { viewModel.closePreview() }
         )
     }
+
+    if (uiState.showActionMenu && uiState.actionTargetFile != null) {
+        FileActionMenuDialog(
+            targetFile = uiState.actionTargetFile,
+            onPreview = {
+                val file = uiState.actionTargetFile
+                viewModel.closeActionMenu()
+                viewModel.previewFile(file)
+            },
+            onRename = { viewModel.openRenameDialog() },
+            onCalculateChecksum = { viewModel.executeCalculateChecksum() },
+            onDelete = { viewModel.openDeleteConfirmDialog() },
+            onDismiss = { viewModel.closeActionMenu() }
+        )
+    }
+
+    if (uiState.showRenameDialog && uiState.actionTargetFile != null) {
+        RenameFileDialog(
+            targetFile = uiState.actionTargetFile,
+            isOperating = uiState.isOperatingFile,
+            errorMessage = uiState.actionErrorMessage,
+            onConfirmRename = { newName -> viewModel.executeRenameFile(newName) },
+            onDismiss = { viewModel.closeRenameDialog() }
+        )
+    }
+
+    if (uiState.showDeleteConfirmDialog && uiState.actionTargetFile != null) {
+        DeleteConfirmDialog(
+            targetFile = uiState.actionTargetFile,
+            isOperating = uiState.isOperatingFile,
+            errorMessage = uiState.actionErrorMessage,
+            onConfirmDelete = { viewModel.executeDeleteFile() },
+            onDismiss = { viewModel.closeDeleteConfirmDialog() }
+        )
+    }
+
+    if (uiState.checksumResult != null || uiState.isCalculatingChecksum) {
+        ChecksumResultDialog(
+            checksumResult = uiState.checksumResult,
+            isCalculating = uiState.isCalculatingChecksum,
+            errorMessage = uiState.actionErrorMessage,
+            onDismiss = { viewModel.closeChecksumDialog() }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RemoteFileRow(
     file: RemoteFile,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (file.name == "..") null else onLongClick
+            ),
         colors = CardDefaults.cardColors(
             containerColor = if (file.isDirectory) MaterialTheme.colorScheme.secondaryContainer
             else MaterialTheme.colorScheme.surfaceVariant

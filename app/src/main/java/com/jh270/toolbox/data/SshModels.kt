@@ -32,6 +32,13 @@ data class RemoteFile(
     val fileType: FileType = FileType.UNKNOWN
 )
 
+data class ChecksumResult(
+    val fileName: String,
+    val filePath: String,
+    val md5: String,
+    val sha256: String
+)
+
 data class FilePreview(
     val name: String,
     val path: String,
