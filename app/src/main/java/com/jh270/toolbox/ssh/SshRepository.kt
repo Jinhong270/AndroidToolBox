@@ -340,17 +340,17 @@ class SshRepository {
         val fullText = "$msg $causeMsg ${e.javaClass.name}".lowercase()
 
         return when {
+            fullText.contains("no route to host") || fullText.contains("noroute") || fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
+                "地址错误"
+            }
+            fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
+                "连接超时"
+            }
             fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") -> {
                 "身份认证失败：用户名、密码或 SSH 私钥错误"
             }
-            fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
-                "主机无法解析：请检查 IP 地址或域名是否正确"
-            }
             fullText.contains("connection refused") || fullText.contains("connectexception") -> {
                 "连接被拒绝：请检查端口号是否正确，以及服务器 SSH 服务（sshd）是否开启"
-            }
-            fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
-                "连接超时：请检查网络连接、防火墙开放端口或目标 IP 是否可达"
             }
             fullText.contains("algorithm negotiation fail") -> {
                 "加密算法协商失败：服务器禁用了兼容算法，请检查 SSH 服务配置"
@@ -358,7 +358,7 @@ class SshRepository {
             fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("keyinvalid") -> {
                 "私钥格式错误：输入的 SSH 私钥内容无效"
             }
-            fullText.contains("network is unreachable") || fullText.contains("no route to host") -> {
+            fullText.contains("network is unreachable") -> {
                 "网络不可达：请检查手机网络连接或局域网设置"
             }
             msg.isNotBlank() -> "连接失败: $msg"
