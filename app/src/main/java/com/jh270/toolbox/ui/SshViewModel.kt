@@ -33,6 +33,7 @@ data class SshUiState(
     val showActionMenu: Boolean = false,
     val showRenameDialog: Boolean = false,
     val showDeleteConfirmDialog: Boolean = false,
+    val showCompressDialog: Boolean = false,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
     val checksumResult: ChecksumResult? = null,
@@ -240,6 +241,14 @@ class SshViewModel(
         _uiState.update { it.copy(showDeleteConfirmDialog = false) }
     }
 
+    fun openCompressDialog() {
+        _uiState.update { it.copy(showActionMenu = false, showCompressDialog = true) }
+    }
+
+    fun closeCompressDialog() {
+        _uiState.update { it.copy(showCompressDialog = false) }
+    }
+
     fun executeDeleteFile() {
         val target = uiState.value.actionTargetFile ?: return
         viewModelScope.launch {
@@ -334,6 +343,58 @@ class SshViewModel(
                     it.copy(
                         isCalculatingChecksum = false,
                         actionErrorMessage = error.message ?: "校验计算失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun executeCompress(format: String) {
+        val target = uiState.value.actionTargetFile ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
+            val result = repository.compressFile(target, format)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        showCompressDialog = false,
+                        actionTargetFile = null,
+                        actionSuccessMessage = "压缩成功"
+                    )
+                }
+                refreshDirectory()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        actionErrorMessage = error.message ?: "压缩失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun executeDecompress() {
+        val target = uiState.value.actionTargetFile ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
+            val result = repository.decompressFile(target)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        showActionMenu = false,
+                        actionTargetFile = null,
+                        actionSuccessMessage = "解压成功"
+                    )
+                }
+                refreshDirectory()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isOperatingFile = false,
+                        actionErrorMessage = error.message ?: "解压失败"
                     )
                 }
             }

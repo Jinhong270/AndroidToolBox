@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.data.FileType
@@ -105,27 +108,17 @@ fun RemoteFileManagerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
-                    onClick = { viewModel.navigateUp() },
-                    enabled = uiState.currentPath != "/" && !uiState.isLoadingFiles
-                ) {
-                    Text("返回上级")
-                }
-
                 OutlinedTextField(
                     value = editingPath,
                     onValueChange = { editingPath = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    label = { Text("当前路径") }
+                    label = { Text("当前路径 (输入后回车跳转)") },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = { viewModel.loadDirectory(editingPath) }
+                    )
                 )
-
-                Button(
-                    onClick = { viewModel.loadDirectory(editingPath) },
-                    enabled = !uiState.isLoadingFiles
-                ) {
-                    Text("跳转")
-                }
 
                 Button(
                     onClick = { viewModel.refreshDirectory() },
@@ -254,8 +247,20 @@ fun RemoteFileManagerScreen(
             },
             onRename = { viewModel.openRenameDialog() },
             onCalculateChecksum = { viewModel.executeCalculateChecksum() },
+            onCompress = { viewModel.openCompressDialog() },
+            onDecompress = { viewModel.executeDecompress() },
             onDelete = { viewModel.openDeleteConfirmDialog() },
             onDismiss = { viewModel.closeActionMenu() }
+        )
+    }
+
+    if (uiState.showCompressDialog && uiState.actionTargetFile != null) {
+        CompressDialog(
+            targetFile = uiState.actionTargetFile,
+            isOperating = uiState.isOperatingFile,
+            errorMessage = uiState.actionErrorMessage,
+            onConfirmCompress = { format -> viewModel.executeCompress(format) },
+            onDismiss = { viewModel.closeCompressDialog() }
         )
     }
 

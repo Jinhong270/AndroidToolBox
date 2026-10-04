@@ -311,6 +311,63 @@ class SshRepository {
         }
     }
 
+    suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val parentDir = file.path.substringBeforeLast('/', "/")
+            val fileName = file.name
+            val cmd = when (format) {
+                "zip" -> "cd \"$parentDir\" && zip -r \"$fileName.zip\" \"$fileName\""
+                "tar.gz" -> "cd \"$parentDir\" && tar -czf \"$fileName.tar.gz\" \"$fileName\""
+                "tar" -> "cd \"$parentDir\" && tar -cf \"$fileName.tar\" \"$fileName\""
+                else -> throw IllegalArgumentException("不支持的压缩格式")
+            }
+            executeSshCommand(sess, cmd)
+        }
+    }
+
+    suspend fun decompressFile(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val parentDir = file.path.substringBeforeLast('/', "/")
+            val fileName = file.name
+            val lowerName = fileName.lowercase()
+            val cmd = when {
+                lowerName.endsWith(".zip") -> "cd \"$parentDir\" && unzip \"$fileName\""
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd \"$parentDir\" && tar -xzf \"$fileName\""
+                lowerName.endsWith(".tar") -> "cd \"$parentDir\" && tar -xf \"$fileName\""
+                lowerName.endsWith(".gz") -> "cd \"$parentDir\" && gunzip \"$fileName\""
+                lowerName.endsWith(".rar") -> "cd \"$parentDir\" && unrar x \"$fileName\""
+                lowerName.endsWith(".7z") -> "cd \"$parentDir\" && 7z x \"$fileName\""
+                else -> throw IllegalArgumentException("不支持的解压格式")
+            }
+            executeSshCommand(sess, cmd)
+        }
+    }
+
+    private fun executeSshCommand(sess: Session, command: String) {
+        val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
+        channel.setCommand(command)
+        val errStream = ByteArrayOutputStream()
+        channel.setErrStream(errStream)
+        val inStream = channel.inputStream
+        channel.connect(15000)
+
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(1024)
+        var read: Int
+        while (inStream.read(buffer).also { read = it } != -1) {
+            output.write(buffer, 0, read)
+        }
+        channel.disconnect()
+
+        val exitStatus = channel.exitStatus
+        if (exitStatus != 0) {
+            val errStr = errStream.toString(Charsets.UTF_8.name())
+            throw RuntimeException(if (errStr.isNotBlank()) errStr else "Command exited with status $exitStatus")
+        }
+    }
+
     private fun determineFileType(filename: String, isDirectory: Boolean): FileType {
         if (isDirectory) return FileType.DIRECTORY
         val extension = filename.substringAfterLast('.', "").lowercase()
