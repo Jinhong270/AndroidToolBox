@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">ToolBox</string>
+    <string name="ssh_file_manager">SSH ファイルマネージャー</string>
+    <string name="connect_ssh">SSH デバイスに接続</string>
+    <string name="host_placeholder">ホスト IP / ドメイン</string>
+    <string name="port">ポート</string>
+    <string name="username">ユーザー名</string>
+    <string name="password">パスワード</string>
+    <string name="private_key">SSH 秘密鍵</string>
+    <string name="auth_type">認証方式</string>
+    <string name="password_auth">パスワード</string>
+    <string name="key_auth">秘密鍵</string>
+    <string name="disconnect">切断</string>
+    <string name="refresh">更新</string>
+    <string name="current_path">現在のパス</string>
+    <string name="search_placeholder">ファイルを検索...</string>
+    <string name="terminal">ターミナル</string>
+    <string name="user_agreement">利用規約</string>
+    <string name="agreement_title">利用規約とプライバシーポリシー</string>
+    <string name="agreement_content">ToolBox はオープンソースの SSH ファイルマネージャーおよび診断ユーティリティです。すべての接続、資格情報、およびファイル転送は、お客様のデバイスとリモートサーバー間で直接実行されます。サードパーティへのデータ送信は一切行われません。</string>
+    <string name="accept">同意する</string>
+</resources>

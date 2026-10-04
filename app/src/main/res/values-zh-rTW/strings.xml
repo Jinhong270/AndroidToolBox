@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">工具箱</string>
+    <string name="ssh_file_manager">SSH 檔案管理器</string>
+    <string name="connect_ssh">連線 SSH 裝置</string>
+    <string name="host_placeholder">IP 地址 / 主機名稱</string>
+    <string name="port">連接埠</string>
+    <string name="username">使用者名稱</string>
+    <string name="password">密碼</string>
+    <string name="private_key">SSH 私鑰內容</string>
+    <string name="auth_type">認證方式</string>
+    <string name="password_auth">密碼認證</string>
+    <string name="key_auth">私鑰認證</string>
+    <string name="disconnect">斷開連線</string>
+    <string name="refresh">重新整理</string>
+    <string name="current_path">目前路徑</string>
+    <string name="search_placeholder">搜尋目前目錄下的檔案...</string>
+    <string name="terminal">終端機</string>
+    <string name="user_agreement">使用者使用協議</string>
+    <string name="agreement_title">使用條款與隱私聲明</string>
+    <string name="agreement_content">工具箱（ToolBox）是一款開源的 SSH 檔案管理與遠端診斷工具。所有的網路連線、身分憑證與檔案傳輸均直接在您的裝置與遠端伺服器之間建立與執行，絕不收集或傳輸任何敏感資料至第三方伺服器。使用本應用即表示您同意合法、合規地使用相關功能。</string>
+    <string name="accept">同意並進入</string>
+</resources>

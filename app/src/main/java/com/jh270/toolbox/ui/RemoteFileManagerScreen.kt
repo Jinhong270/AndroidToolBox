@@ -84,6 +84,12 @@ fun RemoteFileManagerScreen(
                 },
                 actions = {
                     OutlinedButton(
+                        onClick = { viewModel.openTerminal() },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Text("终端")
+                    }
+                    OutlinedButton(
                         onClick = { viewModel.disconnect() },
                         modifier = Modifier.padding(end = 8.dp)
                     ) {

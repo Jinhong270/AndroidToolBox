@@ -9,11 +9,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jh270.toolbox.ui.RemoteFileManagerScreen
 import com.jh270.toolbox.ui.SshConnectionScreen
+import com.jh270.toolbox.ui.SshTerminalScreen
 import com.jh270.toolbox.ui.SshViewModel
+import com.jh270.toolbox.ui.UserAgreementDialog
 import com.jh270.toolbox.ui.theme.ToolBoxTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,8 +33,21 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val sshViewModel: SshViewModel = viewModel()
                     val uiState by sshViewModel.uiState.collectAsState()
+                    var showAgreement by remember { mutableStateOf(true) }
 
-                    if (uiState.isConnected) {
+                    if (showAgreement) {
+                        UserAgreementDialog(
+                            onAccept = { showAgreement = false },
+                            onDismiss = { finish() }
+                        )
+                    }
+
+                    if (uiState.showTerminalScreen) {
+                        SshTerminalScreen(
+                            viewModel = sshViewModel,
+                            uiState = uiState
+                        )
+                    } else if (uiState.isConnected) {
                         RemoteFileManagerScreen(
                             viewModel = sshViewModel,
                             uiState = uiState
