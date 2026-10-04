@@ -57,8 +57,19 @@ class SshRepository {
                 newSession.setPassword(config.password)
             }
 
+            val userInfo = MyUserInfo(
+                password = if (config.authType == AuthType.PASSWORD) config.password else null,
+                passphrase = if (config.authType == AuthType.PRIVATE_KEY && config.passphrase.isNotBlank()) config.passphrase else null
+            )
+            newSession.setUserInfo(userInfo)
+
             val properties = java.util.Properties()
             properties["StrictHostKeyChecking"] = "no"
+            if (config.authType == AuthType.PASSWORD) {
+                properties["PreferredAuthentications"] = "password,keyboard-interactive,publickey"
+            } else {
+                properties["PreferredAuthentications"] = "publickey,password,keyboard-interactive"
+            }
             newSession.setConfig(properties)
             newSession.timeout = 15000
             newSession.connect(15000)
@@ -485,6 +496,36 @@ class SshRepository {
             }
             msg.isNotBlank() -> "连接失败: $msg"
             else -> "连接失败: Unknown error"
+        }
+    }
+
+    private class MyUserInfo(
+        private val password: String?,
+        private val passphrase: String?
+    ) : com.jcraft.jsch.UserInfo, com.jcraft.jsch.UIKeyboardInteractive {
+        override fun getPassword(): String? = password
+        override fun promptPassword(message: String?): Boolean = true
+        override fun getPassphrase(): String? = passphrase
+        override fun promptPassphrase(message: String?): Boolean = true
+        override fun promptYesNo(message: String?): Boolean = true
+        override fun showMessage(message: String?) {}
+
+        override fun promptKeyboardInteractive(
+            destination: String?,
+            name: String?,
+            instruction: String?,
+            prompt: Array<out String>?,
+            echo: BooleanArray?
+        ): Array<String>? {
+            if (prompt != null && password != null) {
+                val response = arrayOfNulls<String>(prompt.size)
+                for (i in prompt.indices) {
+                    response[i] = password
+                }
+                @Suppress("UNCHECKED_CAST")
+                return response as Array<String>
+            }
+            return null
         }
     }
 }
