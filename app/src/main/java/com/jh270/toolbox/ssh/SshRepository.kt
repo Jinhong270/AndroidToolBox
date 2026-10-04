@@ -1,6 +1,5 @@
 package com.jh270.toolbox.ssh
 
-import android.util.Log
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -34,22 +33,17 @@ class SshRepository {
                 java.security.Security.addProvider(net.i2p.crypto.eddsa.EdDSASecurityProvider())
             } catch (_: Exception) {}
 
-            Log.d("SshRepository", "Connecting to host=${config.host}, port=${config.port}, user=${config.username}, authType=${config.authType}")
-
             if (config.authType == AuthType.PRIVATE_KEY && config.privateKey.isNotBlank()) {
                 tempKeyFile = File.createTempFile("ssh_private_key", ".pem")
                 tempKeyFile.writeText(config.privateKey.trim(), Charsets.UTF_8)
                 tempKeyFile.setReadable(false, false)
                 tempKeyFile.setReadable(true, true)
 
-                Log.d("SshRepository", "Created temp key file: ${tempKeyFile.absolutePath}, size: ${tempKeyFile.length()}")
-
                 if (config.passphrase.isNotBlank()) {
                     jsch.addIdentity(tempKeyFile.absolutePath, config.passphrase)
                 } else {
                     jsch.addIdentity(tempKeyFile.absolutePath)
                 }
-                Log.d("SshRepository", "Identity added successfully from file")
             }
 
             val newSession = jsch.getSession(config.username, config.host, config.port)
@@ -83,7 +77,6 @@ class SshRepository {
             val pwd = sftpChannel?.pwd() ?: "/"
             Result.success(pwd)
         } catch (e: Exception) {
-            Log.e("SshRepository", "SSH connection exception", e)
             Result.failure(Exception(formatSshException(e)))
         } finally {
             try {
@@ -472,8 +465,6 @@ class SshRepository {
         val msg = e.message ?: ""
         val causeMsg = e.cause?.message ?: ""
         val fullText = "$msg $causeMsg ${e.javaClass.name}".lowercase()
-
-        Log.e("SshRepository", "Formatting SSH exception: $fullText", e)
 
         return when {
             fullText.contains("no route to host") || fullText.contains("noroute") || fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
