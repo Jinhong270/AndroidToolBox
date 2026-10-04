@@ -10,6 +10,7 @@ import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -346,7 +347,10 @@ class SshRepository {
         }
     }
 
-    suspend fun executeShellCommand(command: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun executeShellCommandStreaming(
+        command: String,
+        onChunk: (String) -> Unit
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
@@ -356,24 +360,29 @@ class SshRepository {
             val inStream = channel.inputStream
             channel.connect(15000)
 
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(4096)
+            val buffer = ByteArray(1024)
             var read: Int
-            while (inStream.read(buffer).also { read = it } != -1) {
-                output.write(buffer, 0, read)
+            while (true) {
+                if (inStream.available() > 0) {
+                    read = inStream.read(buffer)
+                    if (read > 0) {
+                        val chunk = String(buffer, 0, read, Charsets.UTF_8)
+                        onChunk(chunk)
+                    }
+                } else {
+                    if (channel.isClosed) {
+                        if (inStream.available() <= 0) break
+                    }
+                    delay(50)
+                }
             }
-            channel.disconnect()
 
-            val outStr = output.toString(Charsets.UTF_8.name())
             val errStr = errStream.toString(Charsets.UTF_8.name())
-            if (errStr.isNotBlank() && outStr.isBlank()) {
-                throw RuntimeException(errStr)
-            }
             if (errStr.isNotBlank()) {
-                "$outStr\n$errStr"
-            } else {
-                outStr
+                onChunk(errStr)
             }
+
+            channel.disconnect()
         }
     }
 
@@ -436,7 +445,7 @@ class SshRepository {
                 "连接超时"
             }
             fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") -> {
-                "身份认证失败：用户名、密码或 SSH 私钥错误"
+                "身份认证失败：用户名, 密码或 SSH 私钥错误"
             }
             fullText.contains("connection refused") || fullText.contains("connectexception") -> {
                 "连接被拒绝：请检查端口号是否正确，以及服务器 SSH 服务（sshd）是否开启"
