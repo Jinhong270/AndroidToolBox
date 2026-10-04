@@ -46,6 +46,17 @@ fun SshConnectionScreen(
 ) {
     var showPassword by remember { mutableStateOf(false) }
 
+    val isHostValid = uiState.config.host.isNotBlank()
+    val isPortValid = uiState.config.port in 1..65535
+    val isUsernameValid = uiState.config.username.isNotBlank()
+    val isAuthValid = if (uiState.config.authType == AuthType.PASSWORD) {
+        uiState.config.password.isNotBlank()
+    } else {
+        uiState.config.privateKey.isNotBlank()
+    }
+
+    val isFormValid = isHostValid && isPortValid && isUsernameValid && isAuthValid
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -94,16 +105,18 @@ fun SshConnectionScreen(
                             label = { Text("IP 地址 / 主机名") },
                             placeholder = { Text("例如: 192.168.1.100") },
                             modifier = Modifier.weight(0.7f),
-                            singleLine = true
+                            singleLine = true,
+                            isError = !isHostValid && uiState.config.host.isNotEmpty()
                         )
 
                         OutlinedTextField(
-                            value = if (uiState.config.port == 22) "22" else uiState.config.port.toString(),
+                            value = uiState.config.port.toString(),
                             onValueChange = { viewModel.updatePort(it) },
                             label = { Text("端口") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(0.3f),
-                            singleLine = true
+                            singleLine = true,
+                            isError = !isPortValid
                         )
                     }
 
@@ -115,7 +128,8 @@ fun SshConnectionScreen(
                         label = { Text("用户名") },
                         placeholder = { Text("例如: root") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = !isUsernameValid && uiState.config.username.isNotEmpty()
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -173,11 +187,20 @@ fun SshConnectionScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (!isFormValid) {
+                        Text(
+                            text = "请完整填写 IP 地址、端口(1-65535)、用户名以及密码或私钥",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
 
                     Button(
                         onClick = { viewModel.connect() },
-                        enabled = !uiState.isConnecting,
+                        enabled = isFormValid && !uiState.isConnecting,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (uiState.isConnecting) {
