@@ -3,7 +3,9 @@ package com.jh270.toolbox.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -25,16 +28,25 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jh270.toolbox.data.FilePreview
+import com.jh270.toolbox.data.FileType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,23 +56,51 @@ fun FilePreviewDialog(
     filePreview: FilePreview?,
     isLoading: Boolean,
     errorMessage: String?,
+    isSaving: Boolean,
+    saveSuccessMessage: String?,
+    saveErrorMessage: String?,
+    onSaveContent: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var isEditMode by remember { mutableStateOf(false) }
+    var editedText by remember(filePreview?.content) { mutableStateOf(filePreview?.content ?: "") }
+
+    LaunchedEffect(saveSuccessMessage) {
+        if (saveSuccessMessage != null) {
+            Toast.makeText(context, saveSuccessMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                text = filePreview?.name ?: "文件预览",
-                style = MaterialTheme.typography.titleLarge
-            )
+            Column {
+                Text(
+                    text = filePreview?.name ?: "文件查看",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (filePreview != null) {
+                    val typeName = when (filePreview.fileType) {
+                        FileType.TEXT -> "文本文件"
+                        FileType.IMAGE -> "图片文件"
+                        FileType.BINARY -> "二进制文件"
+                        FileType.DIRECTORY -> "文件夹"
+                        FileType.UNKNOWN -> "其他类型文件"
+                    }
+                    Text(
+                        text = "类型: $typeName",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                    .padding(vertical = 4.dp)
             ) {
                 if (isLoading) {
                     Box(
@@ -72,7 +112,7 @@ fun FilePreviewDialog(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(text = "正在读取远程文件内容...")
+                            Text(text = "正在获取远程文件内容...")
                         }
                     }
                 } else if (errorMessage != null) {
@@ -96,15 +136,15 @@ fun FilePreviewDialog(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = 8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
                             Text(
                                 text = "路径: ${filePreview.path}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -126,67 +166,166 @@ fun FilePreviewDialog(
                         }
                     }
 
-                    if (filePreview.isBinary) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "此文件为二进制文件，暂不支持文本预览。",
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    } else if (!filePreview.content.isNullOrEmpty()) {
+                    if (saveErrorMessage != null) {
                         Text(
-                            text = "文件内容预览:",
-                            style = MaterialTheme.typography.labelLarge,
+                            text = saveErrorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 280.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .padding(8.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            SelectionContainer {
+                    }
+
+                    when (filePreview.fileType) {
+                        FileType.IMAGE -> {
+                            val imageBitmap = remember(filePreview.imageData) {
+                                filePreview.imageData?.let { bytes ->
+                                    try {
+                                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                        bitmap?.asImageBitmap()
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                            }
+
+                            if (imageBitmap != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 300.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = imageBitmap,
+                                        contentDescription = "图片预览",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                            } else {
                                 Text(
-                                    text = filePreview.content,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
+                                    text = "图片解码失败或数据损坏",
+                                    color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
                         }
-                    } else {
-                        Text(
-                            text = "文件为空",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+
+                        FileType.TEXT -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isEditMode) "编辑模式" else "查看模式",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                OutlinedButton(
+                                    onClick = { isEditMode = !isEditMode },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(if (isEditMode) "切换查看" else "切换编辑")
+                                }
+                            }
+
+                            if (isEditMode) {
+                                OutlinedTextField(
+                                    value = editedText,
+                                    onValueChange = { editedText = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 180.dp, max = 280.dp),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp
+                                    )
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 280.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(8.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            text = editedText,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 12.sp,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "此文件类型不支持文本编辑或图像直接预览。",
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            if (filePreview?.content != null && !filePreview.isBinary) {
-                Button(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val clip = ClipData.newPlainText("FileContent", filePreview.content)
-                        clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (filePreview?.fileType == FileType.TEXT) {
+                    if (isEditMode) {
+                        Button(
+                            onClick = { onSaveContent(filePreview.path, editedText) },
+                            enabled = !isSaving
+                        ) {
+                            if (isSaving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .padding(end = 6.dp)
+                                        .height(16.dp)
+                                        .width(16.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Text("保存中")
+                            } else {
+                                Text("保存文本")
+                            }
+                        }
                     }
-                ) {
-                    Text("复制内容")
+
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("FileContent", editedText)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "已复制文本内容到剪贴板", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text("复制文本")
+                    }
                 }
             }
         },

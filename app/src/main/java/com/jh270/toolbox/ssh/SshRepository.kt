@@ -5,10 +5,12 @@ import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.FilePreview
+import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.Vector
 
@@ -93,6 +95,8 @@ class SshRepository {
                     else -> "$targetPath/$name"
                 }
 
+                val type = determineFileType(name, isDir)
+
                 result.add(
                     RemoteFile(
                         name = name,
@@ -100,7 +104,8 @@ class SshRepository {
                         isDirectory = isDir,
                         size = size,
                         permissions = permissions,
-                        modifiedTime = mTime
+                        modifiedTime = mTime,
+                        fileType = type
                     )
                 )
             }
@@ -110,7 +115,7 @@ class SshRepository {
         }
     }
 
-    suspend fun previewFile(file: RemoteFile, maxBytes: Int = 102400): Result<FilePreview> = withContext(Dispatchers.IO) {
+    suspend fun previewFile(file: RemoteFile, maxBytes: Int = 5242880): Result<FilePreview> = withContext(Dispatchers.IO) {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("Not connected")
 
@@ -121,13 +126,18 @@ class SshRepository {
                     size = file.size,
                     permissions = file.permissions,
                     modifiedTime = file.modifiedTime,
-                    content = null,
-                    isText = false,
-                    isBinary = false,
-                    errorMessage = "Directories cannot be previewed as files"
+                    fileType = FileType.DIRECTORY,
+                    errorMessage = "文件夹无法作为文件预览"
                 )
             }
 
+            val fileType = if (file.fileType == FileType.UNKNOWN) {
+                determineFileType(file.name, false)
+            } else {
+                file.fileType
+            }
+
+            val readLimit = if (fileType == FileType.TEXT) 204800 else maxBytes
             val outputStream = ByteArrayOutputStream()
             val inputStream = channel.get(file.path)
 
@@ -136,8 +146,8 @@ class SshRepository {
             var read: Int
 
             while (inputStream.read(buffer).also { read = it } != -1) {
-                if (bytesReadTotal + read > maxBytes) {
-                    val allowed = maxBytes - bytesReadTotal
+                if (bytesReadTotal + read > readLimit) {
+                    val allowed = readLimit - bytesReadTotal
                     if (allowed > 0) {
                         outputStream.write(buffer, 0, allowed)
                     }
@@ -150,24 +160,77 @@ class SshRepository {
             inputStream.close()
 
             val bytes = outputStream.toByteArray()
-            val isBinary = isBinaryContent(bytes)
 
-            val contentText = if (isBinary) {
-                null
-            } else {
-                String(bytes, Charsets.UTF_8)
+            when (fileType) {
+                FileType.IMAGE -> {
+                    FilePreview(
+                        name = file.name,
+                        path = file.path,
+                        size = file.size,
+                        permissions = file.permissions,
+                        modifiedTime = file.modifiedTime,
+                        imageData = bytes,
+                        fileType = FileType.IMAGE
+                    )
+                }
+                FileType.TEXT -> {
+                    val text = String(bytes, Charsets.UTF_8)
+                    FilePreview(
+                        name = file.name,
+                        path = file.path,
+                        size = file.size,
+                        permissions = file.permissions,
+                        modifiedTime = file.modifiedTime,
+                        content = text,
+                        fileType = FileType.TEXT
+                    )
+                }
+                else -> {
+                    val isBinary = isBinaryContent(bytes)
+                    if (isBinary) {
+                        FilePreview(
+                            name = file.name,
+                            path = file.path,
+                            size = file.size,
+                            permissions = file.permissions,
+                            modifiedTime = file.modifiedTime,
+                            fileType = FileType.BINARY
+                        )
+                    } else {
+                        val text = String(bytes, Charsets.UTF_8)
+                        FilePreview(
+                            name = file.name,
+                            path = file.path,
+                            size = file.size,
+                            permissions = file.permissions,
+                            modifiedTime = file.modifiedTime,
+                            content = text,
+                            fileType = FileType.TEXT
+                        )
+                    }
+                }
             }
+        }
+    }
 
-            FilePreview(
-                name = file.name,
-                path = file.path,
-                size = file.size,
-                permissions = file.permissions,
-                modifiedTime = file.modifiedTime,
-                content = contentText,
-                isText = !isBinary,
-                isBinary = isBinary
-            )
+    suspend fun saveFileContent(path: String, content: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("Not connected")
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val inputStream = ByteArrayInputStream(bytes)
+            channel.put(inputStream, path, ChannelSftp.OVERWRITE)
+        }
+    }
+
+    private fun determineFileType(filename: String, isDirectory: Boolean): FileType {
+        if (isDirectory) return FileType.DIRECTORY
+        val extension = filename.substringAfterLast('.', "").lowercase()
+        return when (extension) {
+            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini", "sh", "bash",
+            "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
+            "env", "properties", "gradle", "kts", "sql", "csv", "rc", "pro" -> FileType.TEXT
+            "jpg", "jpeg", "png", "gif", "webp", "bmp" -> FileType.IMAGE
+            else -> FileType.UNKNOWN
         }
     }
 

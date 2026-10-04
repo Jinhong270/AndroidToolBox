@@ -25,6 +25,9 @@ data class SshUiState(
     val selectedFilePreview: FilePreview? = null,
     val isPreviewLoading: Boolean = false,
     val previewError: String? = null,
+    val isSavingFile: Boolean = false,
+    val saveSuccessMessage: String? = null,
+    val saveErrorMessage: String? = null,
     val searchQuery: String = ""
 )
 
@@ -170,8 +173,44 @@ class SshViewModel(
         }
     }
 
+    fun saveFileContent(path: String, newContent: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSavingFile = true, saveSuccessMessage = null, saveErrorMessage = null) }
+            val result = repository.saveFileContent(path, newContent)
+            result.onSuccess {
+                _uiState.update {
+                    val updatedPreview = it.selectedFilePreview?.copy(content = newContent)
+                    it.copy(
+                        isSavingFile = false,
+                        selectedFilePreview = updatedPreview,
+                        saveSuccessMessage = "文件保存成功"
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isSavingFile = false,
+                        saveErrorMessage = error.message ?: "文件保存失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearSaveMessages() {
+        _uiState.update { it.copy(saveSuccessMessage = null, saveErrorMessage = null) }
+    }
+
     fun closePreview() {
-        _uiState.update { it.copy(selectedFilePreview = null, previewError = null, isPreviewLoading = false) }
+        _uiState.update {
+            it.copy(
+                selectedFilePreview = null,
+                previewError = null,
+                isPreviewLoading = false,
+                saveSuccessMessage = null,
+                saveErrorMessage = null
+            )
+        }
     }
 
     fun updateSearchQuery(query: String) {
