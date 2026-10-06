@@ -96,18 +96,11 @@ fun RemoteFileManagerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = if (uiState.isInArchiveMode) "压缩包文件浏览" else "远程 SSH 文件管理器",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${uiState.config.username}@${uiState.config.host}:${uiState.config.port}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
+                    Text(
+                        text = "文件管理器",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                 },
                 actions = {
                     IconButton(onClick = { viewModel.openTerminal() }) {
@@ -119,7 +112,7 @@ fun RemoteFileManagerScreen(
                     IconButton(onClick = { viewModel.disconnect() }) {
                         Icon(
                             imageVector = Icons.Default.PowerOff,
-                            contentDescription = "断开连接",
+                            contentDescription = "断开",
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -148,7 +141,7 @@ fun RemoteFileManagerScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "返回上级"
+                        contentDescription = "上级"
                     )
                 }
 
@@ -190,7 +183,7 @@ fun RemoteFileManagerScreen(
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = { viewModel.updateSearchQuery(it) },
-                    placeholder = { Text("搜索当前目录文件...") },
+                    placeholder = { Text("搜索...") },
                     leadingIcon = {
                         Icon(imageVector = Icons.Default.Search, contentDescription = null)
                     },
@@ -210,14 +203,14 @@ fun RemoteFileManagerScreen(
                         onClick = { viewModel.openCreateFolderDialog() },
                         modifier = Modifier.height(52.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
+                        Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新文件夹")
                     }
 
                     OutlinedButton(
                         onClick = { viewModel.openCreateFileDialog() },
                         modifier = Modifier.height(52.dp)
                     ) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新建文件")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新文件")
                     }
                 }
             }
@@ -234,7 +227,7 @@ fun RemoteFileManagerScreen(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "读取错误:",
+                            text = "错误:",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -265,7 +258,7 @@ fun RemoteFileManagerScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text(if (uiState.isInArchiveMode) "正在读取压缩包文件..." else "正在获取远程文件列表...")
+                        Text("读取中...")
                     }
                 }
             } else {
@@ -287,7 +280,7 @@ fun RemoteFileManagerScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (uiState.searchQuery.isNotBlank()) "未搜索到匹配的文件" else "此目录为空",
+                                text = if (uiState.searchQuery.isNotBlank()) "无匹配" else "空目录",
                                 color = MaterialTheme.colorScheme.outline
                             )
                         }
@@ -316,8 +309,8 @@ fun RemoteFileManagerScreen(
 
     if (uiState.showCreateFolderDialog) {
         CreateFileDialog(
-            title = "新建远程文件夹",
-            label = "文件夹名称",
+            title = "新建文件夹",
+            label = "名称",
             isOperating = uiState.isOperatingFile,
             errorMessage = uiState.actionErrorMessage,
             onConfirm = { name -> viewModel.executeCreateFolder(name) },
@@ -327,8 +320,8 @@ fun RemoteFileManagerScreen(
 
     if (uiState.showCreateFileDialog) {
         CreateFileDialog(
-            title = "新建远程文件",
-            label = "文件名称",
+            title = "新建文件",
+            label = "名称",
             isOperating = uiState.isOperatingFile,
             errorMessage = uiState.actionErrorMessage,
             onConfirm = { name -> viewModel.executeCreateFile(name) },
@@ -412,8 +405,6 @@ fun RemoteFileManagerScreen(
             onDismiss = { viewModel.closeDeleteConfirmDialog() }
         )
     }
-
-
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -493,7 +484,7 @@ fun RemoteFileRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 if (file.name == "..") {
                     Text(
-                        text = "返回上级目录",
+                        text = "返回",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -503,7 +494,7 @@ fun RemoteFileRow(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = if (file.isDirectory) "文件夹" else formatFileSize(file.size),
+                            text = if (file.isDirectory) "目录" else formatFileSize(file.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
