@@ -183,6 +183,12 @@ class SshRepository {
         }
     }
 
+    suspend fun resizeTerminal(cols: Int, rows: Int) = withContext(Dispatchers.IO) {
+        runCatching {
+            shellChannel?.setPtySize(cols, rows, 0, 0)
+        }
+    }
+
     suspend fun closeShellSession() = withContext(Dispatchers.IO) {
         closeShellSessionInternal()
     }

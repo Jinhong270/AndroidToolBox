@@ -181,6 +181,91 @@ class TerminalEmulator(
         resetStyle()
     }
 
+    fun resize(newCols: Int, newRows: Int) {
+        val nc = newCols.coerceIn(20, 400)
+        val nr = newRows.coerceIn(5, 200)
+        if (nc == cols && nr == rows) return
+
+        val oldRows = rows
+        val oldGrid = grid
+        val oldScrollback = scrollback.toList()
+        val wasAlt = isAlt
+
+        cols = nc
+        rows = nr
+        grid = Array(nr) { Array(nc) { Cell() } }
+        altGrid = Array(nr) { Array(nc) { Cell() } }
+        scrollback.clear()
+
+        val lines = reflow(oldScrollback, oldGrid, oldRows, nc)
+        val start = maxOf(0, lines.size - nr)
+        for (i in 0 until start) scrollback.addLast(lines[i])
+        for (i in start until lines.size) grid[i - start] = lines[i]
+        while (scrollback.size > maxScrollback) scrollback.removeFirst()
+
+        if (wasAlt) {
+            cursorRow = 0
+            cursorCol = 0
+        } else {
+            var lastRow = 0
+            var lastCol = 0
+            for (r in 0 until nr) {
+                var e = nc
+                while (e > 0 && grid[r][e - 1].ch == ' ') e--
+                if (e > 0) {
+                    lastRow = r
+                    lastCol = e
+                }
+            }
+            cursorRow = lastRow.coerceIn(0, nr - 1)
+            cursorCol = lastCol.coerceIn(0, nc - 1)
+        }
+        wrapPending = false
+    }
+
+    private fun reflow(
+        oldScrollback: List<Array<Cell>>,
+        oldGrid: Array<Array<Cell>>,
+        oldRows: Int,
+        newCols: Int
+    ): ArrayList<Array<Cell>> {
+        val result = ArrayList<Array<Cell>>()
+        var current = Array(newCols) { Cell() }
+        var col = 0
+
+        fun flush() {
+            result.add(current)
+            current = Array(newCols) { Cell() }
+            col = 0
+        }
+
+        fun emit(line: Array<Cell>) {
+            var end = line.size
+            while (end > 0 && line[end - 1].ch == ' ') end--
+            for (c in 0 until end) {
+                val cell = line[c]
+                if (cell.ch == CONT) continue
+                val w = if (cell.wide) 2 else 1
+                if (col + w > newCols) flush()
+                current[col].ch = cell.ch
+                current[col].style = cell.style.copyOf()
+                current[col].wide = cell.wide
+                col += w
+                if (cell.wide && col < newCols) {
+                    current[col].ch = CONT
+                    current[col].style = cell.style.copyOf()
+                    current[col].wide = false
+                    col++
+                }
+            }
+            flush()
+        }
+
+        for (line in oldScrollback) emit(line)
+        for (r in 0 until oldRows) emit(oldGrid[r])
+        return result
+    }
+
     private fun activeGrid(): Array<Array<Cell>> = if (isAlt) altGrid else grid
 
     private fun parseCsi(data: String, start: Int): Int {

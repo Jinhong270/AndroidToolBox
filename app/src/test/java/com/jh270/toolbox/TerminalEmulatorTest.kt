@@ -83,4 +83,16 @@ class TerminalEmulatorTest {
         val cursorRun = line.runs.firstOrNull { it.text == " " && it.style.bg == 0xFFE6EDF3.toInt() }
         assertTrue(cursorRun != null)
     }
+
+    @Test
+    fun resizeReflowsContent() {
+        val emu = TerminalEmulator(cols = 10, rows = 3)
+        emu.feed("abcdefghijklmnopqrst")
+        emu.resize(5, 4)
+        val text = plainText(emu.getLines())
+        assertTrue(text.contains("abcde"))
+        assertTrue(text.contains("fghij"))
+        assertTrue(text.contains("klmno"))
+        assertTrue(text.contains("pqrst"))
+    }
 }
