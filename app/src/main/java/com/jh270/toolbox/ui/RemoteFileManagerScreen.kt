@@ -12,21 +12,42 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PowerOff
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -38,7 +59,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +86,7 @@ fun RemoteFileManagerScreen(
     LaunchedEffect(uiState.actionSuccessMessage) {
         if (uiState.actionSuccessMessage != null) {
             Toast.makeText(context, uiState.actionSuccessMessage, Toast.LENGTH_SHORT).show()
+            viewModel.clearActionMessages()
         }
     }
 
@@ -78,22 +102,24 @@ fun RemoteFileManagerScreen(
                         )
                         Text(
                             text = "${uiState.config.username}@${uiState.config.host}:${uiState.config.port}",
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
                     }
                 },
                 actions = {
-                    OutlinedButton(
-                        onClick = { viewModel.openTerminal() },
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        Text("终端")
+                    IconButton(onClick = { viewModel.openTerminal() }) {
+                        Icon(
+                            imageVector = Icons.Default.Terminal,
+                            contentDescription = "终端"
+                        )
                     }
-                    OutlinedButton(
-                        onClick = { viewModel.disconnect() },
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text("断开连接")
+                    IconButton(onClick = { viewModel.disconnect() }) {
+                        Icon(
+                            imageVector = Icons.Default.PowerOff,
+                            contentDescription = "断开连接",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -112,37 +138,81 @@ fun RemoteFileManagerScreen(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                IconButton(
+                    onClick = { viewModel.navigateUp() },
+                    enabled = uiState.currentPath != "/" && uiState.currentPath.isNotBlank()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "返回上级"
+                    )
+                }
+
                 OutlinedTextField(
                     value = editingPath,
                     onValueChange = { editingPath = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    label = { Text("当前路径 (输入后回车跳转)") },
+                    label = { Text("当前路径 (回车跳转)") },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(
                         onDone = { viewModel.loadDirectory(editingPath) }
                     )
                 )
 
-                Button(
+                IconButton(
                     onClick = { viewModel.refreshDirectory() },
                     enabled = !uiState.isLoadingFiles
                 ) {
-                    Text("刷新")
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "刷新"
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
-                value = uiState.searchQuery,
-                onValueChange = { viewModel.updateSearchQuery(it) },
-                placeholder = { Text("搜索当前目录下的文件...") },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                OutlinedTextField(
+                    value = uiState.searchQuery,
+                    onValueChange = { viewModel.updateSearchQuery(it) },
+                    placeholder = { Text("搜索当前目录文件...") },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (uiState.searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                Icon(imageVector = Icons.Default.Clear, contentDescription = "清除")
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+
+                OutlinedButton(
+                    onClick = { viewModel.openCreateFolderDialog() },
+                    modifier = Modifier.height(52.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.openCreateFileDialog() },
+                    modifier = Modifier.height(52.dp)
+                ) {
+                    Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新建文件")
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -151,7 +221,8 @@ fun RemoteFileManagerScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
@@ -226,6 +297,28 @@ fun RemoteFileManagerScreen(
                 }
             }
         }
+    }
+
+    if (uiState.showCreateFolderDialog) {
+        CreateFileDialog(
+            title = "新建远程文件夹",
+            label = "文件夹名称",
+            isOperating = uiState.isOperatingFile,
+            errorMessage = uiState.actionErrorMessage,
+            onConfirm = { name -> viewModel.executeCreateFolder(name) },
+            onDismiss = { viewModel.closeCreateFolderDialog() }
+        )
+    }
+
+    if (uiState.showCreateFileDialog) {
+        CreateFileDialog(
+            title = "新建远程文件",
+            label = "文件名称",
+            isOperating = uiState.isOperatingFile,
+            errorMessage = uiState.actionErrorMessage,
+            onConfirm = { name -> viewModel.executeCreateFile(name) },
+            onDismiss = { viewModel.closeCreateFileDialog() }
+        )
     }
 
     if (uiState.selectedFilePreview != null || uiState.isPreviewLoading || uiState.previewError != null) {
@@ -310,15 +403,16 @@ fun RemoteFileRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 3.dp)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = if (file.name == "..") null else onLongClick
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (file.isDirectory) MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = if (file.isDirectory) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
@@ -326,21 +420,38 @@ fun RemoteFileRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val typeTag = when (file.fileType) {
-                FileType.DIRECTORY -> "[文件夹]"
-                FileType.TEXT -> "[文本]"
-                FileType.IMAGE -> "[图片]"
-                FileType.BINARY -> "[二进制]"
-                FileType.UNKNOWN -> "[文件]"
+            val icon = when (file.fileType) {
+                FileType.DIRECTORY -> Icons.Default.Folder
+                FileType.TEXT -> Icons.Default.Code
+                FileType.IMAGE -> Icons.Default.Image
+                FileType.ARCHIVE -> Icons.Default.Archive
+                FileType.BINARY -> Icons.Default.Terminal
+                FileType.UNKNOWN -> Icons.AutoMirrored.Filled.InsertDriveFile
             }
 
-            Text(
-                text = typeTag,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 10.dp)
-            )
+            val tint = when (file.fileType) {
+                FileType.DIRECTORY -> Color(0xFFF59E0B)
+                FileType.TEXT -> Color(0xFF3B82F6)
+                FileType.IMAGE -> Color(0xFF8B5CF6)
+                FileType.ARCHIVE -> Color(0xFF10B981)
+                FileType.BINARY -> Color(0xFFEF4444)
+                FileType.UNKNOWN -> Color(0xFF64748B)
+            }
+
+            Surface(
+                shape = CircleShape,
+                color = tint.copy(alpha = 0.15f),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -370,6 +481,7 @@ fun RemoteFileRow(
                         Text(
                             text = file.permissions,
                             style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

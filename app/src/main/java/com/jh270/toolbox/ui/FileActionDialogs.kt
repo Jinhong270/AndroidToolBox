@@ -13,15 +13,26 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -89,6 +100,8 @@ fun FileActionMenuDialog(
                         onClick = onPreview,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("查看 / 编辑内容")
                     }
                 }
@@ -97,6 +110,8 @@ fun FileActionMenuDialog(
                     onClick = onRename,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Icon(imageVector = Icons.Default.DriveFileRenameOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("重命名")
                 }
 
@@ -105,6 +120,8 @@ fun FileActionMenuDialog(
                         onClick = onCalculateChecksum,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        Icon(imageVector = Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("计算文件校验码 (MD5 / SHA256)")
                     }
                 }
@@ -113,6 +130,8 @@ fun FileActionMenuDialog(
                     onClick = onCompress,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Icon(imageVector = Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("压缩")
                 }
 
@@ -121,6 +140,8 @@ fun FileActionMenuDialog(
                         onClick = onDecompress,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        Icon(imageVector = Icons.Default.Unarchive, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("解压")
                     }
                 }
@@ -133,6 +154,8 @@ fun FileActionMenuDialog(
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("删除此${if (targetFile.isDirectory) "文件夹" else "文件"}")
                 }
             }
@@ -140,6 +163,73 @@ fun FileActionMenuDialog(
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun CreateFileDialog(
+    title: String,
+    label: String,
+    isOperating: Boolean,
+    errorMessage: String?,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var nameInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    label = { Text(label) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(nameInput) },
+                enabled = nameInput.isNotBlank() && !isOperating
+            ) {
+                if (isOperating) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Text("创建中...")
+                } else {
+                    Text("确认创建")
+                }
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
                 Text("取消")
             }
         }
@@ -178,6 +268,8 @@ fun CompressDialog(
                     enabled = !isOperating,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Icon(imageVector = Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("压缩为 .zip")
                 }
 
@@ -186,6 +278,8 @@ fun CompressDialog(
                     enabled = !isOperating,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Icon(imageVector = Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("压缩为 .tar.gz")
                 }
 
@@ -199,8 +293,7 @@ fun CompressDialog(
                         CircularProgressIndicator(
                             modifier = Modifier
                                 .padding(end = 8.dp)
-                                .height(18.dp)
-                                .width(18.dp),
+                                .size(18.dp),
                             strokeWidth = 2.dp
                         )
                         Text("正在压缩...")
@@ -274,8 +367,7 @@ fun RenameFileDialog(
                     CircularProgressIndicator(
                         modifier = Modifier
                             .padding(end = 6.dp)
-                            .height(16.dp)
-                            .width(16.dp),
+                            .size(16.dp),
                         color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
@@ -356,8 +448,7 @@ fun DeleteConfirmDialog(
                     CircularProgressIndicator(
                         modifier = Modifier
                             .padding(end = 6.dp)
-                            .height(16.dp)
-                            .width(16.dp),
+                            .size(16.dp),
                         color = MaterialTheme.colorScheme.onError,
                         strokeWidth = 2.dp
                     )
@@ -513,6 +604,8 @@ fun ChecksumResultDialog(
                             Toast.makeText(context, "已复制 MD5 到剪贴板", Toast.LENGTH_SHORT).show()
                         }
                     ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("复制 MD5")
                     }
 
@@ -524,6 +617,8 @@ fun ChecksumResultDialog(
                             Toast.makeText(context, "已复制 SHA256 到剪贴板", Toast.LENGTH_SHORT).show()
                         }
                     ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("复制 SHA256")
                     }
                 }
