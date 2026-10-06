@@ -40,11 +40,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -642,6 +644,9 @@ fun FileDetailDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var hashType by remember { mutableStateOf("MD5") }
+    var autoCalc by remember { mutableStateOf(false) }
+    var expectedHash by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -678,12 +683,41 @@ fun FileDetailDialog(
                 }
 
                 if (!targetFile.isDirectory) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { hashType = "MD5" }
+                        ) {
+                            RadioButton(selected = hashType == "MD5", onClick = { hashType = "MD5" })
+                            Text("MD5", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { hashType = "SHA256" }
+                        ) {
+                            RadioButton(selected = hashType == "SHA256", onClick = { hashType = "SHA256" })
+                            Text("SHA256", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { autoCalc = !autoCalc }
+                    ) {
+                        Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it })
+                        Text("下次直接计算", style = MaterialTheme.typography.bodyMedium)
+                    }
+
                     if (checksumResult == null && !isCalculating) {
                         Button(
                             onClick = onCalculateChecksum,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("校验 (计算 MD5 / SHA256)")
+                            Text("校验")
                         }
                     } else if (isCalculating) {
                         Box(
@@ -699,8 +733,10 @@ fun FileDetailDialog(
                             }
                         }
                     } else if (checksumResult != null) {
+                        val currentHash = if (hashType == "MD5") checksumResult.md5 else checksumResult.sha256
+
                         Text(
-                            text = "MD5:",
+                            text = "$hashType 校验结果:",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -715,7 +751,7 @@ fun FileDetailDialog(
                         ) {
                             SelectionContainer {
                                 Text(
-                                    text = checksumResult.md5,
+                                    text = currentHash,
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
                                 )
@@ -724,25 +760,29 @@ fun FileDetailDialog(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Text(
-                            text = "SHA256:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
+                        OutlinedTextField(
+                            value = expectedHash,
+                            onValueChange = { expectedHash = it },
+                            label = { Text("输入期望的哈希值进行校验") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                         )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .padding(8.dp)
-                        ) {
-                            SelectionContainer {
+
+                        if (expectedHash.isNotBlank()) {
+                            val isMatch = currentHash.equals(expectedHash.trim(), ignoreCase = true)
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isMatch) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Text(
-                                    text = checksumResult.sha256,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp
+                                    text = if (isMatch) "✓ 校验通过：输入哈希值与文件完全匹配" else "✕ 校验失败：输入哈希值不匹配",
+                                    color = if (isMatch) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(10.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -760,28 +800,16 @@ fun FileDetailDialog(
         },
         confirmButton = {
             if (checksumResult != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("MD5", checksumResult.md5)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "已复制 MD5", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text("复制 MD5")
+                val currentHash = if (hashType == "MD5") checksumResult.md5 else checksumResult.sha256
+                Button(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText(hashType, currentHash)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "已复制 $hashType", Toast.LENGTH_SHORT).show()
                     }
-
-                    Button(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("SHA256", checksumResult.sha256)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "已复制 SHA256", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text("复制 SHA256")
-                    }
+                ) {
+                    Text("复制 $hashType")
                 }
             }
         },
