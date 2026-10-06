@@ -24,9 +24,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -91,8 +93,11 @@ fun FilePreviewDialog(
                     val typeName = when (filePreview.fileType) {
                         FileType.TEXT -> "文本文件"
                         FileType.IMAGE -> "图片文件"
+                        FileType.AUDIO -> "音频文件"
+                        FileType.VIDEO -> "视频文件"
                         FileType.ARCHIVE -> "压缩包"
-                        FileType.BINARY -> "二进制可执行文件"
+                        FileType.EXECUTABLE -> "可执行脚本"
+                        FileType.BINARY -> "二进制文件"
                         FileType.DIRECTORY -> "文件夹"
                         FileType.UNKNOWN -> "其他类型文件"
                     }
@@ -224,7 +229,7 @@ fun FilePreviewDialog(
                             }
                         }
 
-                        FileType.TEXT -> {
+                        FileType.TEXT, FileType.EXECUTABLE -> {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -298,8 +303,52 @@ fun FilePreviewDialog(
                                     Icon(imageVector = Icons.Default.Archive, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "此文件为压缩包，长按此文件可通过操作菜单选择解压。",
+                                        text = "点击此压缩包即可浏览内部目录结构与文件预览。",
                                         color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+
+                        FileType.AUDIO -> {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(imageVector = Icons.Default.Audiotrack, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "远程音频文件 (${filePreview.name})",
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+
+                        FileType.VIDEO -> {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(imageVector = Icons.Default.Videocam, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "远程视频文件 (${filePreview.name})",
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
@@ -327,7 +376,7 @@ fun FilePreviewDialog(
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (filePreview?.fileType == FileType.TEXT) {
+                if (filePreview?.fileType == FileType.TEXT || filePreview?.fileType == FileType.EXECUTABLE) {
                     if (isEditMode) {
                         Button(
                             onClick = { onSaveContent(filePreview.path, editedText) },
