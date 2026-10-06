@@ -8,6 +8,7 @@ import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
+import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
@@ -251,19 +252,20 @@ class SshViewModel(
     }
 
     fun loadDirectory(path: String) {
+        val normalized = RemotePath.normalize(path)
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isLoadingFiles = true,
                     fileFetchError = null,
-                    currentPath = path,
+                    currentPath = normalized,
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
                     archiveEntries = emptyList()
                 )
             }
-            val result = repository.listFiles(path)
+            val result = repository.listFiles(normalized)
             result.onSuccess { files ->
                 _uiState.update {
                     it.copy(
@@ -296,11 +298,9 @@ class SshViewModel(
         }
 
         val current = state.currentPath
-        if (current == "/" || current.isBlank()) return
+        if (RemotePath.isRoot(current) || current.isBlank()) return
 
-        val parent = current.trimEnd('/').substringBeforeLast('/', "")
-        val targetPath = parent.ifEmpty { "/" }
-        loadDirectory(targetPath)
+        loadDirectory(RemotePath.parent(current))
     }
 
     fun refreshDirectory() {
@@ -665,7 +665,7 @@ class SshViewModel(
 
     fun executeRemoteFileInTerminal(file: RemoteFile) {
         closeActionMenu()
-        openTerminal(initialCommand = "chmod +x \"${file.path}\" && \"${file.path}\"")
+        openTerminal(initialCommand = repository.buildExecuteInTerminalCommand(file))
     }
 
     fun openTerminal(initialCommand: String? = null) {

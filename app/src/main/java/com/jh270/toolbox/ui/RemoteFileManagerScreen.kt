@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
+import com.jh270.toolbox.data.RemotePath
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,7 +137,7 @@ fun RemoteFileManagerScreen(
             ) {
                 IconButton(
                     onClick = { viewModel.navigateUp() },
-                    enabled = uiState.isInArchiveMode || (uiState.currentPath != "/" && uiState.currentPath.isNotBlank())
+                    enabled = uiState.isInArchiveMode || !RemotePath.isRoot(uiState.currentPath)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,

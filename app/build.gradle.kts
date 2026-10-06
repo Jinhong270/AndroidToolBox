@@ -52,6 +52,8 @@ dependencies {
     implementation(libs.eddsa)
     implementation(libs.bcprov)
     implementation(libs.bcpkix)
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
