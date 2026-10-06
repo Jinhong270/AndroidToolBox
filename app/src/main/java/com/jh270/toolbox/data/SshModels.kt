@@ -5,6 +5,12 @@ enum class AuthType {
     PRIVATE_KEY
 }
 
+enum class RemotePlatform {
+    UNIX,
+    WINDOWS,
+    UNKNOWN
+}
+
 enum class FileType {
     DIRECTORY,
     TEXT,

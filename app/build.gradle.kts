@@ -50,5 +50,7 @@ dependencies {
     implementation(libs.eddsa)
     implementation(libs.bcprov)
     implementation(libs.bcpkix)
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
