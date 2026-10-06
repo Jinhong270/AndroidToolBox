@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -645,8 +646,23 @@ fun FileDetailDialog(
 ) {
     val context = LocalContext.current
     var hashType by remember { mutableStateOf("MD5") }
-    var autoCalc by remember { mutableStateOf(false) }
+
+    val prefs = remember { context.getSharedPreferences("toolbox_prefs", Context.MODE_PRIVATE) }
+    var autoCalc by remember { mutableStateOf(prefs.getBoolean("auto_calc_checksum", false)) }
     var expectedHash by remember { mutableStateOf("") }
+
+    LaunchedEffect(autoCalc) {
+        prefs.edit().putBoolean("auto_calc_checksum", autoCalc).apply()
+        if (autoCalc && checksumResult == null && !isCalculating && !targetFile.isDirectory) {
+            onCalculateChecksum()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (autoCalc && checksumResult == null && !isCalculating && !targetFile.isDirectory) {
+            onCalculateChecksum()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
