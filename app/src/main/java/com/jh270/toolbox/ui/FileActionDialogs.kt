@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.PlayArrow
@@ -72,7 +71,6 @@ fun FileActionMenuDialog(
     onPreview: () -> Unit,
     onExecuteInTerminal: () -> Unit,
     onDetails: () -> Unit,
-    onChecksum: () -> Unit,
     onRename: () -> Unit,
     onCompress: () -> Unit,
     onDecompress: () -> Unit,
@@ -160,17 +158,6 @@ fun FileActionMenuDialog(
                     Icon(imageVector = Icons.Default.DriveFileRenameOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("重命名")
-                }
-
-                if (!targetFile.isDirectory) {
-                    OutlinedButton(
-                        onClick = onChecksum,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(imageVector = Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("校验")
-                    }
                 }
 
                 OutlinedButton(
@@ -660,7 +647,7 @@ fun FileDetailDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "文件详情与校验",
+                text = "文件详情",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -696,7 +683,7 @@ fun FileDetailDialog(
                             onClick = onCalculateChecksum,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("计算 MD5 / SHA256 校验码")
+                            Text("校验 (计算 MD5 / SHA256)")
                         }
                     } else if (isCalculating) {
                         Box(
