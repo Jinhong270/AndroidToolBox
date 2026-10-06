@@ -117,18 +117,26 @@ class SshRepository {
         session = null
     }
 
+    @Suppress("unused")
     fun isConnected(): Boolean {
         return session?.isConnected == true && sftpChannel?.isConnected == true
     }
 
-    suspend fun startShellSession(onOutput: (String) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+    @Suppress("BlockingMethodInNonBlockingContext")
+    suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             closeShellSessionInternal()
 
             val channel = sess.openChannel("shell") as ChannelShell
             channel.setPty(true)
-            channel.setPtyType("vt100", 80, 24, 640, 480)
+            channel.setPtyType("xterm-256color", cols, rows, 0, 0)
+            try {
+                channel.setEnv("TERM", "xterm-256color")
+            } catch (_: Exception) {}
+            try {
+                channel.setEnv("LANG", "en_US.UTF-8")
+            } catch (_: Exception) {}
 
             val inStream = channel.inputStream
             val outStream = channel.outputStream
@@ -140,19 +148,13 @@ class SshRepository {
             shellOutputStream = outStream
 
             shellReadingThread = Thread {
-                val buffer = ByteArray(2048)
+                val buffer = ByteArray(4096)
                 try {
                     while (shellChannel?.isConnected == true) {
-                        if (inStream.available() > 0) {
-                            val read = inStream.read(buffer)
-                            if (read > 0) {
-                                val chunk = stripAnsiCodes(String(buffer, 0, read, Charsets.UTF_8))
-                                if (chunk.isNotEmpty()) {
-                                    onOutput(chunk)
-                                }
-                            }
-                        } else {
-                            Thread.sleep(30)
+                        val read = inStream.read(buffer)
+                        if (read < 0) break
+                        if (read > 0) {
+                            onOutput(String(buffer, 0, read, Charsets.UTF_8))
                         }
                     }
                 } catch (_: Exception) {}
@@ -160,14 +162,16 @@ class SshRepository {
         }
     }
 
-    suspend fun sendShellInput(input: String) = withContext(Dispatchers.IO) {
+    suspend fun sendShellRaw(bytes: ByteArray) = withContext(Dispatchers.IO) {
         runCatching {
             shellOutputStream?.let { out ->
-                out.write(input.toByteArray(Charsets.UTF_8))
+                out.write(bytes)
                 out.flush()
             }
         }
     }
+
+    suspend fun sendShellInput(input: String) = sendShellRaw(input.toByteArray(Charsets.UTF_8))
 
     suspend fun sendShellControlChar(char: Char) = withContext(Dispatchers.IO) {
         runCatching {
@@ -396,40 +400,19 @@ class SshRepository {
 
     suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = withContext(Dispatchers.IO) {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val escapedPath = escapeSh(file.path)
             val lowerName = file.name.lowercase()
             val entriesList = mutableListOf<ArchiveEntryItem>()
 
-            if (lowerName.endsWith(".zip")) {
-                val inputStream = channel.get(file.path)
-                val zipIn = ZipInputStream(inputStream)
-                var entry: ZipEntry?
-                while (zipIn.nextEntry.also { entry = it } != null) {
-                    val e = entry!!
-                    val rawName = e.name.trimEnd('/')
-                    if (rawName.isNotBlank()) {
-                        entriesList.add(
-                            ArchiveEntryItem(
-                                path = e.name,
-                                name = rawName.substringAfterLast('/'),
-                                isDirectory = e.isDirectory,
-                                size = if (e.size >= 0) e.size else 0L
-                            )
-                        )
-                    }
-                    zipIn.closeEntry()
-                }
-                zipIn.close()
-                inputStream.close()
-            } else {
-                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-                val escapedPath = escapeSh(file.path)
-                val cmd = when {
-                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztf $escapedPath"
-                    lowerName.endsWith(".tar") -> "tar -tf $escapedPath"
-                    else -> "tar -tf $escapedPath"
-                }
+            val cmd = when {
+                lowerName.endsWith(".zip") -> "unzip -l $escapedPath"
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztvf $escapedPath"
+                lowerName.endsWith(".tar") -> "tar -tvf $escapedPath"
+                else -> "tar -tvf $escapedPath"
+            }
 
+            try {
                 val execChan = sess.openChannel("exec") as ChannelExec
                 execChan.setCommand(cmd)
                 val inStream = execChan.inputStream
@@ -438,19 +421,127 @@ class SshRepository {
                 val outputStr = inStream.bufferedReader(Charsets.UTF_8).readText()
                 execChan.disconnect()
 
-                outputStr.lines().forEach { line ->
-                    val cleanLine = line.trim()
-                    if (cleanLine.isNotBlank()) {
-                        val isDir = cleanLine.endsWith("/")
-                        val entryName = cleanLine.trimEnd('/')
-                        entriesList.add(
-                            ArchiveEntryItem(
-                                path = cleanLine,
-                                name = entryName.substringAfterLast('/'),
-                                isDirectory = isDir,
-                                size = 0L
+                if (lowerName.endsWith(".zip")) {
+                    var parsingFiles = false
+                    outputStr.lines().forEach { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("----")) {
+                            parsingFiles = !parsingFiles
+                            return@forEach
+                        }
+                        if (parsingFiles && trimmed.isNotEmpty()) {
+                            val tokens = trimmed.split(Regex("\\s+"))
+                            if (tokens.size >= 4) {
+                                val sizeStr = tokens[0]
+                                val size = sizeStr.toLongOrNull() ?: 0L
+                                val entryPath = tokens.drop(3).joinToString(" ")
+                                val isDir = entryPath.endsWith("/")
+                                val rawName = entryPath.trimEnd('/')
+                                if (rawName.isNotBlank() && !rawName.startsWith("----")) {
+                                    entriesList.add(
+                                        ArchiveEntryItem(
+                                            path = entryPath,
+                                            name = rawName.substringAfterLast('/'),
+                                            isDirectory = isDir,
+                                            size = if (isDir) 0L else size
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    outputStr.lines().forEach { line ->
+                        val cleanLine = line.trim()
+                        if (cleanLine.isNotBlank()) {
+                            val tokens = cleanLine.split(Regex("\\s+"))
+                            if (tokens.size >= 6) {
+                                val perms = tokens[0]
+                                val sizeStr = tokens[2]
+                                val size = sizeStr.toLongOrNull() ?: 0L
+                                val entryPath = tokens.drop(5).joinToString(" ")
+                                val isDir = perms.startsWith("d") || entryPath.endsWith("/")
+                                val rawName = entryPath.trimEnd('/')
+                                if (rawName.isNotBlank()) {
+                                    entriesList.add(
+                                        ArchiveEntryItem(
+                                            path = entryPath,
+                                            name = rawName.substringAfterLast('/'),
+                                            isDirectory = isDir,
+                                            size = if (isDir) 0L else size
+                                        )
+                                    )
+                                }
+                            } else {
+                                val isDir = cleanLine.endsWith("/")
+                                val entryName = cleanLine.trimEnd('/')
+                                if (entryName.isNotBlank()) {
+                                    entriesList.add(
+                                        ArchiveEntryItem(
+                                            path = cleanLine,
+                                            name = entryName.substringAfterLast('/'),
+                                            isDirectory = isDir,
+                                            size = 0L
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            if (entriesList.isEmpty()) {
+                val channel = sftpChannel
+                if (lowerName.endsWith(".zip") && channel != null) {
+                    val inputStream = channel.get(file.path)
+                    val zipIn = ZipInputStream(inputStream)
+                    var entry: ZipEntry?
+                    while (zipIn.nextEntry.also { entry = it } != null) {
+                        val e = entry!!
+                        val rawName = e.name.trimEnd('/')
+                        if (rawName.isNotBlank()) {
+                            entriesList.add(
+                                ArchiveEntryItem(
+                                    path = e.name,
+                                    name = rawName.substringAfterLast('/'),
+                                    isDirectory = e.isDirectory,
+                                    size = if (e.isDirectory) 0L else if (e.size >= 0) e.size else 0L
+                                )
                             )
-                        )
+                        }
+                        zipIn.closeEntry()
+                    }
+                    zipIn.close()
+                    inputStream.close()
+                } else if (channel != null) {
+                    val fallbackCmd = when {
+                        lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztf $escapedPath"
+                        else -> "tar -tf $escapedPath"
+                    }
+                    val execChan2 = sess.openChannel("exec") as ChannelExec
+                    execChan2.setCommand(fallbackCmd)
+                    val inStream2 = execChan2.inputStream
+                    execChan2.connect(15000)
+                    val output2 = inStream2.bufferedReader(Charsets.UTF_8).readText()
+                    execChan2.disconnect()
+
+                    output2.lines().forEach { line ->
+                        val cleanLine = line.trim()
+                        if (cleanLine.isNotBlank()) {
+                            val isDir = cleanLine.endsWith("/")
+                            val entryName = cleanLine.trimEnd('/')
+                            if (entryName.isNotBlank()) {
+                                entriesList.add(
+                                    ArchiveEntryItem(
+                                        path = cleanLine,
+                                        name = entryName.substringAfterLast('/'),
+                                        isDirectory = isDir,
+                                        size = 0L
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -1,7 +1,6 @@
 package com.jh270.toolbox.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,7 +74,7 @@ import com.jh270.toolbox.data.RemoteFile
 @Composable
 fun RemoteFileManagerScreen(
     viewModel: SshViewModel,
-    uiState: SshUiState
+    uiState: SshUiState,
 ) {
     val context = LocalContext.current
     var editingPath by remember(uiState.displayPath) { mutableStateOf(uiState.displayPath) }
@@ -269,9 +268,7 @@ fun RemoteFileManagerScreen(
                     }
 
                     val filteredFiles = activeFiles.filter {
-                        if (it.name == "..") true
-                        else if (uiState.searchQuery.isBlank()) true
-                        else it.name.contains(uiState.searchQuery, ignoreCase = true)
+                        it.name == ".." || uiState.searchQuery.isBlank() || it.name.contains(uiState.searchQuery, ignoreCase = true)
                     }
 
                     if (filteredFiles.isEmpty()) {
@@ -344,7 +341,7 @@ fun RemoteFileManagerScreen(
         )
     }
 
-    if (uiState.showActionMenu && uiState.actionTargetFile != null) {
+    if (uiState.showActionMenu && (uiState.actionTargetFile != null)) {
         FileActionMenuDialog(
             targetFile = uiState.actionTargetFile,
             onPreview = {
@@ -407,7 +404,6 @@ fun RemoteFileManagerScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RemoteFileRow(
     file: RemoteFile,

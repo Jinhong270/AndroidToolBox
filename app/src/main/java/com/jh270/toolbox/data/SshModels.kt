@@ -25,13 +25,13 @@ data class SshConfig(
     val password: String = "",
     val authType: AuthType = AuthType.PASSWORD,
     val privateKey: String = "",
-    val passphrase: String = ""
+    val passphrase: String = "",
 )
 
 data class SshProfile(
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
-    val config: SshConfig
+    val config: SshConfig,
 )
 
 data class RemoteFile(
@@ -43,21 +43,21 @@ data class RemoteFile(
     val owner: String = "root",
     val group: String = "root",
     val modifiedTime: Long,
-    val fileType: FileType = FileType.UNKNOWN
+    val fileType: FileType = FileType.UNKNOWN,
 )
 
 data class ArchiveEntryItem(
     val path: String,
     val name: String,
     val isDirectory: Boolean,
-    val size: Long
+    val size: Long,
 )
 
 data class ChecksumResult(
     val fileName: String,
     val filePath: String,
     val md5: String,
-    val sha256: String
+    val sha256: String,
 )
 
 data class FilePreview(
@@ -69,7 +69,7 @@ data class FilePreview(
     val content: String? = null,
     val imageData: ByteArray? = null,
     val fileType: FileType,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -88,21 +88,20 @@ data class FilePreview(
             if (!imageData.contentEquals(other.imageData)) return false
         } else if (other.imageData != null) return false
         if (fileType != other.fileType) return false
-        if (errorMessage != other.errorMessage) return false
 
-        return true
+        return errorMessage == other.errorMessage
     }
 
     override fun hashCode(): Int {
         var result = name.hashCode()
-        result = 31 * result + path.hashCode()
-        result = 31 * result + size.hashCode()
-        result = 31 * result + permissions.hashCode()
-        result = 31 * result + modifiedTime.hashCode()
-        result = 31 * result + (content?.hashCode() ?: 0)
-        result = 31 * result + (imageData?.contentHashCode() ?: 0)
-        result = 31 * result + fileType.hashCode()
-        result = 31 * result + (errorMessage?.hashCode() ?: 0)
+        result = (31 * result) + path.hashCode()
+        result = (31 * result) + size.hashCode()
+        result = (31 * result) + permissions.hashCode()
+        result = (31 * result) + modifiedTime.hashCode()
+        result = (31 * result) + (content?.hashCode() ?: 0)
+        result = (31 * result) + (imageData?.contentHashCode() ?: 0)
+        result = (31 * result) + fileType.hashCode()
+        result = (31 * result) + errorMessage.hashCode()
         return result
     }
 }

@@ -31,17 +31,18 @@ class MainActivity : ComponentActivity() {
             ToolBoxTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     val sshViewModel: SshViewModel = viewModel()
                     val uiState by sshViewModel.uiState.collectAsState()
-                    var showAgreement by remember { mutableStateOf(true) }
+                    var showAgreement by remember { mutableStateOf(value = true) }
 
                     if (showAgreement) {
                         UserAgreementDialog(
-                            onAccept = { showAgreement = false },
-                            onDismiss = { finish() }
-                        )
+                            onAccept = { showAgreement = false }
+                        ) {
+                            finish()
+                        }
                     }
 
                     when {

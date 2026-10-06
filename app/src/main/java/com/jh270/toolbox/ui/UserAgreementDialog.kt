@@ -10,7 +10,7 @@ import androidx.compose.runtime.Composable
 @Composable
 fun UserAgreementDialog(
     onAccept: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
