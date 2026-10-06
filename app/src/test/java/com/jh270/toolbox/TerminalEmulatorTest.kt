@@ -67,4 +67,20 @@ class TerminalEmulatorTest {
         val run = line.runs.first { it.text == "X" }
         assertEquals(0xFF0A141E.toInt(), run.style.fg)
     }
+
+    @Test
+    fun trailingBlankRowsAreTruncated() {
+        val emu = TerminalEmulator(cols = 20, rows = 40)
+        emu.feed("$ ")
+        assertEquals(1, emu.getLines().size)
+    }
+
+    @Test
+    fun cursorRenderedAsBlock() {
+        val emu = TerminalEmulator(cols = 20, rows = 40)
+        emu.feed("$ ")
+        val line = emu.getLines().first()
+        val cursorRun = line.runs.firstOrNull { it.text == " " && it.style.bg == 0xFFE6EDF3.toInt() }
+        assertTrue(cursorRun != null)
+    }
 }

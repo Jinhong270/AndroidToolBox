@@ -1,7 +1,9 @@
 package com.jh270.toolbox.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,7 +44,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -51,6 +57,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -76,7 +83,7 @@ private val TerminalDim = Color(0xFF6E7681)
 private val TerminalAccent = Color(0xFF38BDF8)
 private val TerminalKeyBg = Color(0xFF1B2330)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SshTerminalScreen(
     viewModel: SshViewModel,
@@ -87,6 +94,9 @@ fun SshTerminalScreen(
     val density = LocalDensity.current
     val fontSize = 13.sp
     var autoScroll by remember { mutableStateOf(true) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var input by remember { mutableStateOf(TextFieldValue("")) }
 
     LaunchedEffect(uiState.terminalRevision) {
         if (autoScroll && uiState.terminalLines.isNotEmpty()) {
@@ -177,7 +187,17 @@ fun SshTerminalScreen(
                     viewModel.startTerminalSession(cols, rows)
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            focusRequester.requestFocus()
+                            keyboardController?.show()
+                        }
+                ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize()
@@ -216,7 +236,95 @@ fun SshTerminalScreen(
 
             TerminalKeyBar(viewModel, uiState)
 
-            TerminalInputField(viewModel, uiState)
+            BasicTextField(
+                value = input,
+                onValueChange = { new ->
+                    val oldComm = committedText(input)
+                    val newComm = committedText(new)
+                    when {
+                        newComm.startsWith(oldComm) -> {
+                            val added = newComm.removePrefix(oldComm)
+                            if (added.isNotEmpty()) {
+                                if (uiState.isCtrlActive) {
+                                    viewModel.sendTerminalControlChar(added[0])
+                                    if (added.length > 1) {
+                                        viewModel.sendTerminalText(added.substring(1))
+                                    }
+                                } else {
+                                    viewModel.sendTerminalText(added)
+                                }
+                            }
+                        }
+                        oldComm.startsWith(newComm) -> {
+                            val removed = oldComm.length - newComm.length
+                            repeat(removed) { viewModel.sendTerminalText("\u007F") }
+                        }
+                        else -> {
+                            repeat(oldComm.length) { viewModel.sendTerminalText("\u007F") }
+                            if (newComm.isNotEmpty()) {
+                                viewModel.sendTerminalText(newComm)
+                            }
+                        }
+                    }
+                    val comp = new.composition
+                    input = if (comp != null && comp.start < comp.end && comp.end <= new.text.length) {
+                        new
+                    } else {
+                        TextFieldValue("", selection = TextRange(0))
+                    }
+                },
+                modifier = Modifier
+                    .size(1.dp)
+                    .alpha(0f)
+                    .focusRequester(focusRequester)
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) {
+                            false
+                        } else {
+                            when (event.key) {
+                                Key.Tab -> {
+                                    viewModel.sendTerminalText("\t")
+                                    true
+                                }
+                                Key.Backspace -> {
+                                    if (input.text.isEmpty()) {
+                                        viewModel.sendTerminalText("\u007F")
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionLeft -> {
+                                    viewModel.sendTerminalText("\u001B[D")
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    viewModel.sendTerminalText("\u001B[C")
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    viewModel.sendTerminalText("\u001B[A")
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    viewModel.sendTerminalText("\u001B[B")
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                    },
+                singleLine = true,
+                textStyle = TextStyle(color = Color.Transparent),
+                cursorBrush = SolidColor(Color.Transparent),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    keyboardType = KeyboardType.Ascii
+                ),
+                keyboardActions = KeyboardActions(
+                    onSend = { viewModel.sendTerminalText("\r") }
+                )
+            )
         }
     }
 }
@@ -312,135 +420,6 @@ private fun TerminalKey(
             color = if (active) Color.Black else TerminalFg,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
-    }
-}
-
-@Composable
-private fun TerminalInputField(
-    viewModel: SshViewModel,
-    uiState: SshUiState
-) {
-    var input by remember { mutableStateOf(TextFieldValue("")) }
-
-    Surface(color = TerminalBar) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (uiState.isCtrlActive) "CTRL " else "> ",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = TerminalAccent
-            )
-            BasicTextField(
-                value = input,
-                onValueChange = { new ->
-                    val oldComm = committedText(input)
-                    val newComm = committedText(new)
-                    when {
-                        newComm.startsWith(oldComm) -> {
-                            val added = newComm.removePrefix(oldComm)
-                            if (added.isNotEmpty()) {
-                                if (uiState.isCtrlActive) {
-                                    viewModel.sendTerminalControlChar(added[0])
-                                    if (added.length > 1) {
-                                        viewModel.sendTerminalText(added.substring(1))
-                                    }
-                                } else {
-                                    viewModel.sendTerminalText(added)
-                                }
-                            }
-                        }
-                        oldComm.startsWith(newComm) -> {
-                            val removed = oldComm.length - newComm.length
-                            repeat(removed) { viewModel.sendTerminalText("\u007F") }
-                        }
-                        else -> {
-                            repeat(oldComm.length) { viewModel.sendTerminalText("\u007F") }
-                            if (newComm.isNotEmpty()) {
-                                viewModel.sendTerminalText(newComm)
-                            }
-                        }
-                    }
-                    val comp = new.composition
-                    input = if (comp != null && comp.start < comp.end && comp.end <= new.text.length) {
-                        new
-                    } else {
-                        TextFieldValue("", selection = TextRange(0))
-                    }
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .onKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) {
-                            false
-                        } else {
-                            when (event.key) {
-                                Key.Tab -> {
-                                    viewModel.sendTerminalText("\t")
-                                    true
-                                }
-                                Key.Backspace -> {
-                                    if (input.text.isEmpty()) {
-                                        viewModel.sendTerminalText("\u007F")
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                                Key.DirectionLeft -> {
-                                    viewModel.sendTerminalText("\u001B[D")
-                                    true
-                                }
-                                Key.DirectionRight -> {
-                                    viewModel.sendTerminalText("\u001B[C")
-                                    true
-                                }
-                                Key.DirectionUp -> {
-                                    viewModel.sendTerminalText("\u001B[A")
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    viewModel.sendTerminalText("\u001B[B")
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                    },
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = TerminalFg,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp
-                ),
-                cursorBrush = SolidColor(TerminalAccent),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Send,
-                    keyboardType = KeyboardType.Ascii
-                ),
-                keyboardActions = KeyboardActions(
-                    onSend = { viewModel.sendTerminalText("\r") }
-                ),
-                decorationBox = { innerTextField ->
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        if (input.text.isEmpty()) {
-                            Text(
-                                text = "输入命令并回车",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
-                                color = TerminalDim
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-        }
     }
 }
 
