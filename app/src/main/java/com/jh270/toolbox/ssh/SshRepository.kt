@@ -13,16 +13,16 @@ import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.Vector
-import java.util.zip.GZIPInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -399,12 +399,12 @@ class SshRepository {
                 var entry: ZipEntry?
                 while (zipIn.nextEntry.also { entry = it } != null) {
                     val e = entry!!
-                    val name = e.name.trimEnd('/')
-                    if (name.isNotBlank()) {
+                    val rawName = e.name.trimEnd('/')
+                    if (rawName.isNotBlank()) {
                         entriesList.add(
                             ArchiveEntryItem(
                                 path = e.name,
-                                name = name.substringAfterLast('/'),
+                                name = rawName.substringAfterLast('/'),
                                 isDirectory = e.isDirectory,
                                 size = if (e.size >= 0) e.size else 0L
                             )
@@ -465,7 +465,8 @@ class SshRepository {
                 var found = false
                 val buffer = ByteArray(4096)
                 while (zipIn.nextEntry.also { entry = it } != null) {
-                    if (entry!!.name == entryPath || entry!!.name.trimEnd('/') == entryPath.trimEnd('/')) {
+                    val e = entry!!
+                    if (e.name == entryPath || e.name.trimEnd('/') == entryPath.trimEnd('/')) {
                         found = true
                         var read: Int
                         while (zipIn.read(buffer).also { read = it } != -1) {
@@ -510,7 +511,7 @@ class SshRepository {
             if (innerType == FileType.IMAGE) {
                 FilePreview(
                     name = innerName,
-                    path = "${archiveFile.path}!/$entryPath",
+                    path = "${archiveFile.name}/$entryPath",
                     size = bytes.size.toLong(),
                     permissions = "-rw-r--r--",
                     modifiedTime = System.currentTimeMillis(),
@@ -522,7 +523,7 @@ class SshRepository {
                 if (isBin) {
                     FilePreview(
                         name = innerName,
-                        path = "${archiveFile.path}!/$entryPath",
+                        path = "${archiveFile.name}/$entryPath",
                         size = bytes.size.toLong(),
                         permissions = "-rw-r--r--",
                         modifiedTime = System.currentTimeMillis(),
@@ -532,7 +533,7 @@ class SshRepository {
                     val text = String(bytes, Charsets.UTF_8)
                     FilePreview(
                         name = innerName,
-                        path = "${archiveFile.path}!/$entryPath",
+                        path = "${archiveFile.name}/$entryPath",
                         size = bytes.size.toLong(),
                         permissions = "-rw-r--r--",
                         modifiedTime = System.currentTimeMillis(),
@@ -629,39 +630,58 @@ class SshRepository {
             val parentDir = if (rawParent.isEmpty()) "/" else rawParent
             val fileName = file.name
 
-            if (format == "zip") {
-                val zipFilePath = if (parentDir.endsWith("/")) "$parentDir$fileName.zip" else "$parentDir/$fileName.zip"
-                val outputStream = channel.put(zipFilePath, ChannelSftp.OVERWRITE)
-                val zipOut = ZipOutputStream(outputStream)
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val escapedDir = escapeSh(parentDir)
+            val escapedFile = escapeSh(fileName)
 
-                if (file.isDirectory) {
-                    compressFolderRecursiveSFTP(channel, file.path, "", zipOut)
-                } else {
-                    val fileIn = channel.get(file.path)
-                    zipOut.putNextEntry(ZipEntry(fileName))
-                    val buffer = ByteArray(4096)
-                    var read: Int
-                    while (fileIn.read(buffer).also { read = it } != -1) {
-                        zipOut.write(buffer, 0, read)
-                    }
-                    fileIn.close()
-                    zipOut.closeEntry()
-                }
-
-                zipOut.close()
-                outputStream.close()
-            } else {
-                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-                val escapedDir = escapeSh(parentDir)
-                val escapedFile = escapeSh(fileName)
-
-                val cmd = when (format) {
-                    "tar.gz" -> "cd $escapedDir && tar -czf ${escapeSh("$fileName.tar.gz")} $escapedFile"
-                    "tar" -> "cd $escapedDir && tar -cf ${escapeSh("$fileName.tar")} $escapedFile"
-                    else -> throw IllegalArgumentException("不支持的压缩格式: $format")
-                }
-                executeSshCommand(sess, cmd)
+            val cmd = when (format) {
+                "zip" -> "cd $escapedDir && (zip -r ${escapeSh("$fileName.zip")} $escapedFile || python3 -c \"import shutil; shutil.make_archive('$fileName', 'zip', '.', '$fileName')\")"
+                "tar.gz" -> "cd $escapedDir && tar -czf ${escapeSh("$fileName.tar.gz")} $escapedFile"
+                "tar" -> "cd $escapedDir && tar -cf ${escapeSh("$fileName.tar")} $escapedFile"
+                else -> throw IllegalArgumentException("不支持的压缩格式: $format")
             }
+
+            try {
+                executeSshCommand(sess, cmd)
+            } catch (e: Exception) {
+                if (format == "zip") {
+                    compressZipSFTPFallback(channel, file, parentDir)
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
+    private fun compressZipSFTPFallback(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+        val tempZipFile = File.createTempFile("toolbox_compress_", ".zip")
+        try {
+            val fos = FileOutputStream(tempZipFile)
+            val zipOut = ZipOutputStream(fos)
+
+            if (file.isDirectory) {
+                compressFolderRecursiveSFTP(channel, file.path, file.name, zipOut)
+            } else {
+                val fileIn = channel.get(file.path)
+                zipOut.putNextEntry(ZipEntry(file.name))
+                val buffer = ByteArray(4096)
+                var read: Int
+                while (fileIn.read(buffer).also { read = it } != -1) {
+                    zipOut.write(buffer, 0, read)
+                }
+                fileIn.close()
+                zipOut.closeEntry()
+            }
+
+            zipOut.close()
+            fos.close()
+
+            val targetZipPath = if (parentDir.endsWith("/")) "$parentDir${file.name}.zip" else "$parentDir/${file.name}.zip"
+            val fis = FileInputStream(tempZipFile)
+            channel.put(fis, targetZipPath, ChannelSftp.OVERWRITE)
+            fis.close()
+        } finally {
+            tempZipFile.delete()
         }
     }
 
@@ -672,7 +692,7 @@ class SshRepository {
             val name = entry.filename
             if (name == "." || name == "..") continue
             val childFullPath = if (currentPath.endsWith("/")) "$currentPath$name" else "$currentPath/$name"
-            val childZipPath = if (zipPathPrefix.isEmpty()) name else "$zipPathPrefix/$name"
+            val childZipPath = "$zipPathPrefix/$name"
 
             if (entry.attrs.isDir) {
                 zipOut.putNextEntry(ZipEntry("$childZipPath/"))
@@ -700,54 +720,77 @@ class SshRepository {
             val fileName = file.name
             val lowerName = fileName.lowercase()
 
-            if (lowerName.endsWith(".zip")) {
-                val inputStream = channel.get(file.path)
-                val zipIn = ZipInputStream(inputStream)
-                var entry: ZipEntry?
-                while (zipIn.nextEntry.also { entry = it } != null) {
-                    val e = entry!!
-                    val entryName = e.name
-                    val targetPath = if (parentDir.endsWith("/")) "$parentDir$entryName" else "$parentDir/$entryName"
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val escapedDir = escapeSh(parentDir)
+            val escapedFile = escapeSh(fileName)
 
-                    if (e.isDirectory) {
-                        try {
-                            channel.mkdir(targetPath)
-                        } catch (_: Exception) {}
-                    } else {
-                        val parentFolder = targetPath.substringBeforeLast('/', "")
-                        if (parentFolder.isNotEmpty()) {
-                            try {
-                                channel.mkdir(parentFolder)
-                            } catch (_: Exception) {}
-                        }
-
-                        val outStream = channel.put(targetPath, ChannelSftp.OVERWRITE)
-                        val buffer = ByteArray(4096)
-                        var read: Int
-                        while (zipIn.read(buffer).also { read = it } != -1) {
-                            outStream.write(buffer, 0, read)
-                        }
-                        outStream.close()
-                    }
-                    zipIn.closeEntry()
-                }
-                zipIn.close()
-                inputStream.close()
-            } else {
-                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-                val escapedDir = escapeSh(parentDir)
-                val escapedFile = escapeSh(fileName)
-
-                val cmd = when {
-                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
-                    lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
-                    lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
-                    lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
-                    lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
-                    else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
-                }
-                executeSshCommand(sess, cmd)
+            val cmd = when {
+                lowerName.endsWith(".zip") -> "cd $escapedDir && (unzip -o $escapedFile || python3 -c \"import zipfile; zipfile.ZipFile('$fileName').extractall('.')\")"
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
+                lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
+                lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
+                lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
+                lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
+                else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
             }
+
+            try {
+                executeSshCommand(sess, cmd)
+            } catch (e: Exception) {
+                if (lowerName.endsWith(".zip")) {
+                    decompressZipSFTPFallback(channel, file, parentDir)
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
+    private fun decompressZipSFTPFallback(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+        val tempZipFile = File.createTempFile("toolbox_decompress_", ".zip")
+        try {
+            val fos = FileOutputStream(tempZipFile)
+            val inputStream = channel.get(file.path)
+            val buffer = ByteArray(4096)
+            var read: Int
+            while (inputStream.read(buffer).also { read = it } != -1) {
+                fos.write(buffer, 0, read)
+            }
+            inputStream.close()
+            fos.close()
+
+            val fis = FileInputStream(tempZipFile)
+            val zipIn = ZipInputStream(fis)
+            var entry: ZipEntry?
+            while (zipIn.nextEntry.also { entry = it } != null) {
+                val e = entry!!
+                val entryName = e.name
+                val targetPath = if (parentDir.endsWith("/")) "$parentDir$entryName" else "$parentDir/$entryName"
+
+                if (e.isDirectory) {
+                    try {
+                        channel.mkdir(targetPath)
+                    } catch (_: Exception) {}
+                } else {
+                    val parentFolder = targetPath.substringBeforeLast('/', "")
+                    if (parentFolder.isNotEmpty()) {
+                        try {
+                            channel.mkdir(parentFolder)
+                        } catch (_: Exception) {}
+                    }
+
+                    val outStream = channel.put(targetPath, ChannelSftp.OVERWRITE)
+                    while (zipIn.read(buffer).also { read = it } != -1) {
+                        outStream.write(buffer, 0, read)
+                    }
+                    outStream.close()
+                }
+                zipIn.closeEntry()
+            }
+            zipIn.close()
+            fis.close()
+        } finally {
+            tempZipFile.delete()
         }
     }
 

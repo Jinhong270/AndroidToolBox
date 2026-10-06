@@ -78,10 +78,10 @@ fun RemoteFileManagerScreen(
     uiState: SshUiState
 ) {
     val context = LocalContext.current
-    var editingPath by remember(uiState.currentPath) { mutableStateOf(uiState.currentPath) }
+    var editingPath by remember(uiState.displayPath) { mutableStateOf(uiState.displayPath) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(uiState.currentPath) {
+    LaunchedEffect(uiState.displayPath) {
         listState.scrollToItem(0)
     }
 
@@ -98,7 +98,7 @@ fun RemoteFileManagerScreen(
                 title = {
                     Column {
                         Text(
-                            text = "远程 SSH 文件管理器",
+                            text = if (uiState.isInArchiveMode) "压缩包文件浏览" else "远程 SSH 文件管理器",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -144,7 +144,7 @@ fun RemoteFileManagerScreen(
             ) {
                 IconButton(
                     onClick = { viewModel.navigateUp() },
-                    enabled = uiState.currentPath != "/" && uiState.currentPath.isNotBlank()
+                    enabled = uiState.isInArchiveMode || (uiState.currentPath != "/" && uiState.currentPath.isNotBlank())
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
@@ -157,17 +157,21 @@ fun RemoteFileManagerScreen(
                     onValueChange = { editingPath = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    label = { Text("当前路径 (回车跳转)") },
+                    label = { Text("路径") },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(
-                        onDone = { viewModel.loadDirectory(editingPath) }
+                        onDone = {
+                            if (!uiState.isInArchiveMode) {
+                                viewModel.loadDirectory(editingPath)
+                            }
+                        }
                     )
                 )
 
                 IconButton(
                     onClick = { viewModel.refreshDirectory() },
-                    enabled = !uiState.isLoadingFiles
+                    enabled = !uiState.isLoadingFiles && !uiState.isLoadingArchiveEntries
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
@@ -201,24 +205,26 @@ fun RemoteFileManagerScreen(
                     singleLine = true
                 )
 
-                OutlinedButton(
-                    onClick = { viewModel.openCreateFolderDialog() },
-                    modifier = Modifier.height(52.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
-                }
+                if (!uiState.isInArchiveMode) {
+                    OutlinedButton(
+                        onClick = { viewModel.openCreateFolderDialog() },
+                        modifier = Modifier.height(52.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
+                    }
 
-                OutlinedButton(
-                    onClick = { viewModel.openCreateFileDialog() },
-                    modifier = Modifier.height(52.dp)
-                ) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新建文件")
+                    OutlinedButton(
+                        onClick = { viewModel.openCreateFileDialog() },
+                        modifier = Modifier.height(52.dp)
+                    ) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新建文件")
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (uiState.fileFetchError != null) {
+            if (uiState.fileFetchError != null || uiState.archiveError != null) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
@@ -228,12 +234,12 @@ fun RemoteFileManagerScreen(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "目录读取错误:",
+                            text = "读取错误:",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                         Text(
-                            text = uiState.fileFetchError,
+                            text = uiState.fileFetchError ?: uiState.archiveError ?: "",
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -246,7 +252,10 @@ fun RemoteFileManagerScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            if (uiState.isLoadingFiles && uiState.fileList.isEmpty()) {
+            val activeFiles = viewModel.getActiveFileList()
+            val isLoading = uiState.isLoadingFiles || uiState.isLoadingArchiveEntries
+
+            if (isLoading && activeFiles.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -256,17 +265,17 @@ fun RemoteFileManagerScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("正在获取远程文件列表...")
+                        Text(if (uiState.isInArchiveMode) "正在读取压缩包文件..." else "正在获取远程文件列表...")
                     }
                 }
             } else {
                 Column(modifier = Modifier.weight(1f)) {
-                    if (uiState.isLoadingFiles) {
+                    if (isLoading) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    val filteredFiles = uiState.fileList.filter {
+                    val filteredFiles = activeFiles.filter {
                         if (it.name == "..") true
                         else if (uiState.searchQuery.isBlank()) true
                         else it.name.contains(uiState.searchQuery, ignoreCase = true)
@@ -291,7 +300,11 @@ fun RemoteFileManagerScreen(
                                 RemoteFileRow(
                                     file = file,
                                     onClick = { viewModel.previewFile(file) },
-                                    onLongClick = { viewModel.selectFileForAction(file) }
+                                    onLongClick = {
+                                        if (!uiState.isInArchiveMode) {
+                                            viewModel.selectFileForAction(file)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -299,17 +312,6 @@ fun RemoteFileManagerScreen(
                 }
             }
         }
-    }
-
-    if (uiState.showArchiveInspector && uiState.archiveTargetFile != null) {
-        ArchiveInspectorDialog(
-            archiveFile = uiState.archiveTargetFile,
-            entries = uiState.archiveEntries,
-            isLoading = uiState.isLoadingArchiveEntries,
-            errorMessage = uiState.archiveError,
-            onSelectEntry = { entry -> viewModel.previewArchiveEntry(entry.path) },
-            onDismiss = { viewModel.closeArchiveInspector() }
-        )
     }
 
     if (uiState.showCreateFolderDialog) {
@@ -487,7 +489,7 @@ fun RemoteFileRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 if (file.name == "..") {
                     Text(
-                        text = "返回上级目录 (${file.path})",
+                        text = "返回上级目录",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -508,12 +510,6 @@ fun RemoteFileRow(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.height(1.dp))
-                    Text(
-                        text = formatDate(file.modifiedTime),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
                 }
             }
         }
