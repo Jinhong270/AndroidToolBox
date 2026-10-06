@@ -1,43 +1,34 @@
 package com.jh270.toolbox.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,15 +36,45 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.ssh.TerminalEmulator
+import kotlinx.coroutines.launch
+
+private val TerminalBg = Color(0xFF0A0E14)
+private val TerminalBar = Color(0xFF11161F)
+private val TerminalFg = Color(0xFFE6EDF3)
+private val TerminalDim = Color(0xFF6E7681)
+private val TerminalAccent = Color(0xFF38BDF8)
+private val TerminalKeyBg = Color(0xFF1B2330)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,13 +82,28 @@ fun SshTerminalScreen(
     viewModel: SshViewModel,
     uiState: SshUiState
 ) {
-    val outputScrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val fontSize = 13.sp
+    var autoScroll by remember { mutableStateOf(true) }
 
-    LaunchedEffect(uiState.terminalOutputBuffer) {
-        outputScrollState.animateScrollTo(outputScrollState.maxValue)
+    LaunchedEffect(uiState.terminalRevision) {
+        if (autoScroll && uiState.terminalLines.isNotEmpty()) {
+            listState.scrollToItem(uiState.terminalLines.size - 1)
+        }
+    }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            autoScroll = lastVisible >= info.totalItemsCount - 1
+        }
     }
 
     Scaffold(
+        containerColor = TerminalBg,
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -75,55 +111,45 @@ fun SshTerminalScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = Color.White
+                            tint = TerminalFg
                         )
                     }
                 },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = null,
-                            tint = Color(0xFF38BDF8),
-                            modifier = Modifier.padding(end = 8.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(Color(0xFF10B981), CircleShape)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "SSH Shell Terminal",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                            }
                             Text(
-                                text = "${uiState.config.username}@${uiState.config.host}:${uiState.config.port}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF94A3B8),
+                                text = "${uiState.config.username}@${uiState.config.host}",
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TerminalFg
+                            )
+                            Text(
+                                text = "SSH Shell Terminal",
+                                fontSize = 10.sp,
+                                color = TerminalDim
                             )
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.clearTerminalHistory() }) {
+                    IconButton(onClick = { viewModel.clearTerminal() }) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
                             contentDescription = "清屏",
-                            tint = Color(0xFFCBD5E1)
+                            tint = TerminalDim
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0F172A)
+                    containerColor = TerminalBar
                 )
             )
         }
@@ -132,208 +158,297 @@ fun SshTerminalScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFF090D16))
+                .background(TerminalBg)
                 .imePadding()
         ) {
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .verticalScroll(outputScrollState)
             ) {
-                if (uiState.terminalOutputBuffer.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = Color(0xFF334155),
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "ToolBox Shell Terminal Connected",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 14.sp,
-                                color = Color(0xFF475569),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                } else {
-                    SelectionContainer {
-                        Text(
-                            text = uiState.terminalOutputBuffer,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = Color(0xFFCBD5E1),
-                            lineHeight = 16.sp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                val charWidthPx = with(density) { fontSize.toPx() * 0.60f }
+                val lineHeightPx = with(density) { fontSize.toPx() * 1.22f }
+                val widthPx = with(density) { maxWidth.toPx() }
+                val heightPx = with(density) { maxHeight.toPx() }
+                val cols = (widthPx / charWidthPx).toInt().coerceIn(40, 200)
+                val rows = (heightPx / lineHeightPx).toInt().coerceIn(6, 80)
+
+                LaunchedEffect(cols, rows) {
+                    viewModel.startTerminalSession(cols, rows)
                 }
-            }
 
-            Surface(
-                color = Color(0xFF0F172A),
-                tonalElevation = 8.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        TerminalControlChip(
-                            label = if (uiState.isCtrlActive) "[CTRL ON]" else "Ctrl",
-                            color = if (uiState.isCtrlActive) Color(0xFFF59E0B) else Color(0xFF38BDF8),
-                            isActive = uiState.isCtrlActive,
-                            onClick = { viewModel.toggleCtrlState() }
-                        )
-
-                        TerminalControlChip(
-                            label = "Esc",
-                            color = Color(0xFF94A3B8),
-                            onClick = { viewModel.sendTerminalKey("\u001B") }
-                        )
-
-                        TerminalControlChip(
-                            label = "Tab",
-                            color = Color(0xFF94A3B8),
-                            onClick = { viewModel.sendTerminalKey("\t") }
-                        )
-
-                        IconButton(
-                            onClick = { viewModel.sendTerminalKey("\u001B[A") },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "上",
-                                tint = Color(0xFF38BDF8)
-                            )
+                        items(uiState.terminalLines.size) { index ->
+                            TerminalLineText(uiState.terminalLines[index], fontSize)
                         }
+                    }
 
-                        IconButton(
-                            onClick = { viewModel.sendTerminalKey("\u001B[B") },
-                            modifier = Modifier.size(28.dp)
+                    if (!autoScroll) {
+                        Surface(
+                            onClick = {
+                                autoScroll = true
+                                if (uiState.terminalLines.isNotEmpty()) {
+                                    scope.launch {
+                                        listState.scrollToItem(uiState.terminalLines.size - 1)
+                                    }
+                                }
+                            },
+                            shape = CircleShape,
+                            color = TerminalBar,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowDownward,
-                                contentDescription = "下",
-                                tint = Color(0xFF38BDF8)
+                                contentDescription = "回到底部",
+                                tint = TerminalAccent,
+                                modifier = Modifier.padding(10.dp)
                             )
                         }
-
-                        IconButton(
-                            onClick = { viewModel.sendTerminalKey("\u001B[D") },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "左",
-                                tint = Color(0xFF38BDF8)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.sendTerminalKey("\u001B[C") },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "右",
-                                tint = Color(0xFF38BDF8)
-                            )
-                        }
-
-                        TerminalControlChip(
-                            label = "Clear",
-                            color = Color(0xFF64748B),
-                            onClick = { viewModel.clearTerminalHistory() }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = uiState.terminalCommandInput,
-                            onValueChange = { viewModel.updateTerminalCommand(it) },
-                            placeholder = {
-                                Text(
-                                    text = if (uiState.isCtrlActive) "按字母键组合 Ctrl (如 C/D/Z)..." else "输入指令发送至 Shell...",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF475569)
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
-                                color = Color(0xFFF8FAFC)
-                            ),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(
-                                onSend = { viewModel.runTerminalCommand() }
-                            ),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFF1E293B),
-                                unfocusedContainerColor = Color(0xFF1E293B),
-                                focusedBorderColor = if (uiState.isCtrlActive) Color(0xFFF59E0B) else Color(0xFF38BDF8),
-                                unfocusedBorderColor = Color(0xFF334155)
-                            ),
-                            trailingIcon = {
-                                IconButton(onClick = { viewModel.runTerminalCommand() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "发送",
-                                        tint = if (uiState.isCtrlActive) Color(0xFFF59E0B) else Color(0xFF38BDF8)
-                                    )
-                                }
-                            }
-                        )
                     }
                 }
             }
+
+            TerminalKeyBar(viewModel, uiState)
+
+            TerminalInputField(viewModel, uiState)
         }
     }
 }
 
 @Composable
-fun TerminalControlChip(
+private fun TerminalLineText(line: TerminalEmulator.TerminalLine, fontSize: TextUnit) {
+    val annotated = remember(line) {
+        buildAnnotatedString {
+            for (run in line.runs) {
+                val style = run.style
+                var fg = Color(style.fg)
+                var bg = Color(style.bg)
+                if (style.inverse) {
+                    val tmp = fg
+                    fg = bg
+                    bg = tmp
+                }
+                pushStyle(
+                    SpanStyle(
+                        color = if (style.dim) fg.copy(alpha = 0.55f) else fg,
+                        background = bg,
+                        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = when {
+                            style.underline && style.strike -> TextDecoration.combine(
+                                listOf(TextDecoration.Underline, TextDecoration.LineThrough)
+                            )
+                            style.underline -> TextDecoration.Underline
+                            style.strike -> TextDecoration.LineThrough
+                            else -> TextDecoration.None
+                        }
+                    )
+                )
+                append(run.text)
+                pop()
+            }
+        }
+    }
+    Text(
+        text = annotated,
+        fontFamily = FontFamily.Monospace,
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.22f,
+        softWrap = false,
+        maxLines = 1,
+        overflow = TextOverflow.Clip,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun TerminalKeyBar(viewModel: SshViewModel, uiState: SshUiState) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .background(TerminalBar)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TerminalKey("ESC") { viewModel.sendTerminalText("\u001B") }
+        TerminalKey("TAB") { viewModel.sendTerminalText("\t") }
+        TerminalKey(if (uiState.isCtrlActive) "CTRL ON" else "CTRL", active = uiState.isCtrlActive) {
+            viewModel.toggleCtrlState()
+        }
+        TerminalKey("DEL") { viewModel.sendTerminalText("\u007F") }
+        TerminalKey("←") { viewModel.sendTerminalText("\u001B[D") }
+        TerminalKey("↑") { viewModel.sendTerminalText("\u001B[A") }
+        TerminalKey("↓") { viewModel.sendTerminalText("\u001B[B") }
+        TerminalKey("→") { viewModel.sendTerminalText("\u001B[C") }
+        TerminalKey("HOME") { viewModel.sendTerminalText("\u001B[H") }
+        TerminalKey("END") { viewModel.sendTerminalText("\u001B[F") }
+    }
+}
+
+@Composable
+private fun TerminalKey(
     label: String,
-    color: Color,
-    isActive: Boolean = false,
+    active: Boolean = false,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isActive) color else color.copy(alpha = 0.2f)
-        )
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = if (active) TerminalAccent else TerminalKeyBg
     ) {
         Text(
             text = label,
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = if (isActive) Color.Black else color,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            color = if (active) Color.Black else TerminalFg,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
+    }
+}
+
+@Composable
+private fun TerminalInputField(
+    viewModel: SshViewModel,
+    uiState: SshUiState
+) {
+    var input by remember { mutableStateOf(TextFieldValue("")) }
+
+    Surface(color = TerminalBar) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (uiState.isCtrlActive) "CTRL " else "> ",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = TerminalAccent
+            )
+            BasicTextField(
+                value = input,
+                onValueChange = { new ->
+                    val oldComm = committedText(input)
+                    val newComm = committedText(new)
+                    when {
+                        newComm.startsWith(oldComm) -> {
+                            val added = newComm.removePrefix(oldComm)
+                            if (added.isNotEmpty()) {
+                                if (uiState.isCtrlActive) {
+                                    viewModel.sendTerminalControlChar(added[0])
+                                    if (added.length > 1) {
+                                        viewModel.sendTerminalText(added.substring(1))
+                                    }
+                                } else {
+                                    viewModel.sendTerminalText(added)
+                                }
+                            }
+                        }
+                        oldComm.startsWith(newComm) -> {
+                            val removed = oldComm.length - newComm.length
+                            repeat(removed) { viewModel.sendTerminalText("\u007F") }
+                        }
+                        else -> {
+                            repeat(oldComm.length) { viewModel.sendTerminalText("\u007F") }
+                            if (newComm.isNotEmpty()) {
+                                viewModel.sendTerminalText(newComm)
+                            }
+                        }
+                    }
+                    val comp = new.composition
+                    input = if (comp != null && comp.start < comp.end && comp.end <= new.text.length) {
+                        new
+                    } else {
+                        TextFieldValue("", selection = TextRange(0))
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) {
+                            false
+                        } else {
+                            when (event.key) {
+                                Key.Tab -> {
+                                    viewModel.sendTerminalText("\t")
+                                    true
+                                }
+                                Key.Backspace -> {
+                                    if (input.text.isEmpty()) {
+                                        viewModel.sendTerminalText("\u007F")
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionLeft -> {
+                                    viewModel.sendTerminalText("\u001B[D")
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    viewModel.sendTerminalText("\u001B[C")
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    viewModel.sendTerminalText("\u001B[A")
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    viewModel.sendTerminalText("\u001B[B")
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                    },
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = TerminalFg,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp
+                ),
+                cursorBrush = SolidColor(TerminalAccent),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    keyboardType = KeyboardType.Ascii
+                ),
+                keyboardActions = KeyboardActions(
+                    onSend = { viewModel.sendTerminalText("\r") }
+                ),
+                decorationBox = { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (input.text.isEmpty()) {
+                            Text(
+                                text = "输入命令并回车",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                color = TerminalDim
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        }
+    }
+}
+
+private fun committedText(value: TextFieldValue): String {
+    val comp = value.composition
+    return if (comp != null && comp.start < comp.end && comp.end <= value.text.length) {
+        value.text.removeRange(comp.start, comp.end)
+    } else {
+        value.text
     }
 }

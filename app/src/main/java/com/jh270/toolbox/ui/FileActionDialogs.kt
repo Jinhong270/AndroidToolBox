@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.core.content.edit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +27,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
@@ -78,7 +78,7 @@ fun FileActionMenuDialog(
     onCompress: () -> Unit,
     onDecompress: () -> Unit,
     onDelete: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val lowerName = targetFile.name.lowercase()
     val isArchive = lowerName.endsWith(".zip") ||
@@ -89,7 +89,7 @@ fun FileActionMenuDialog(
             lowerName.endsWith(".rar") ||
             lowerName.endsWith(".7z")
 
-    val isExecutable = targetFile.fileType == FileType.EXECUTABLE ||
+    val isExecutable = (targetFile.fileType == FileType.EXECUTABLE) ||
             lowerName.endsWith(".sh") ||
             lowerName.endsWith(".rc") ||
             lowerName.endsWith(".bash") ||
@@ -206,6 +206,7 @@ fun FileActionMenuDialog(
     )
 }
 
+@Suppress("unused")
 @Composable
 fun ArchiveInspectorDialog(
     archiveFile: RemoteFile,
@@ -283,6 +284,7 @@ fun ArchiveInspectorDialog(
                             .heightIn(max = 320.dp)
                     ) {
                         items(entries, key = { it.path }) { item ->
+                            val (path, name, isDirectory, size) = item
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -328,7 +330,7 @@ fun ArchiveInspectorDialog(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                    if (!item.isDirectory && item.size > 0) {
+                                    if (!item.isDirectory && item.size >= 0) {
                                         Text(
                                             text = formatFileSize(item.size),
                                             style = MaterialTheme.typography.bodySmall,
@@ -430,7 +432,7 @@ fun CompressDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "压缩",
+                text = "压缩: ${targetFile.name}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )

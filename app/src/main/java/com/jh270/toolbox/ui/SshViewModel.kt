@@ -11,6 +11,7 @@ import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
+import com.jh270.toolbox.ssh.TerminalEmulator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,17 +56,17 @@ data class SshUiState(
     val archiveError: String? = null,
     val showTerminalScreen: Boolean = false,
     val terminalPath: String = "/",
-    val terminalOutputBuffer: String = "",
-    val terminalCommandInput: String = "",
+    val terminalLines: List<TerminalEmulator.TerminalLine> = emptyList(),
+    val terminalRevision: Int = 0,
+    val terminalSessionStarted: Boolean = false,
+    val pendingInitialCommand: String? = null,
     val isCtrlActive: Boolean = false,
-    val commandHistoryList: List<String> = emptyList(),
-    val historyIndex: Int = -1,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
     val checksumResult: ChecksumResult? = null,
     val actionSuccessMessage: String? = null,
     val actionErrorMessage: String? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
 ) {
     val displayPath: String
         get() = if (isInArchiveMode) {
@@ -82,6 +83,9 @@ class SshViewModel(
 
     private val _uiState = MutableStateFlow(SshUiState())
     val uiState: StateFlow<SshUiState> = _uiState.asStateFlow()
+
+    @Volatile
+    private var terminalEmulator: TerminalEmulator? = null
 
     init {
         loadDefaultProfiles()
@@ -111,7 +115,9 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalOutputBuffer = "",
+                    terminalLines = emptyList(),
+                    terminalSessionStarted = false,
+                    pendingInitialCommand = null,
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
@@ -133,10 +139,10 @@ class SshViewModel(
     fun saveCurrentProfile() {
         val config = uiState.value.config
         if (config.host.isBlank()) return
-        val profileName = if (config.name.isNotBlank()) config.name else "${config.username}@${config.host}"
+        val profileName = config.name.ifBlank { "${config.username}@${config.host}" }
         val newProfile = SshProfile(name = profileName, config = config)
         _uiState.update {
-            val updated = it.savedProfiles.filter { p -> p.config.host != config.host || p.config.port != config.port } + newProfile
+            val updated = it.savedProfiles.filter { (_, _, profileConfig) -> (profileConfig.host != config.host) || (profileConfig.port != config.port) } + newProfile
             it.copy(savedProfiles = updated, actionSuccessMessage = "配置已保存")
         }
     }
@@ -229,7 +235,9 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalOutputBuffer = "",
+                    terminalLines = emptyList(),
+                    terminalSessionStarted = false,
+                    pendingInitialCommand = null,
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
@@ -288,7 +296,7 @@ class SshViewModel(
         if (current == "/" || current.isBlank()) return
 
         val parent = current.trimEnd('/').substringBeforeLast('/', "")
-        val targetPath = if (parent.isEmpty()) "/" else parent
+        val targetPath = parent.ifEmpty { "/" }
         loadDirectory(targetPath)
     }
 
@@ -575,8 +583,7 @@ class SshViewModel(
     private fun determineFileTypeByName(filename: String): FileType {
         val lowerName = filename.lowercase()
         if (lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz")) return FileType.ARCHIVE
-        val extension = filename.substringAfterLast('.', "").lowercase()
-        return when (extension) {
+        return when (filename.substringAfterLast('.', "").lowercase()) {
             "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini",
             "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
             "env", "properties", "gradle", "kts", "sql", "csv", "pro" -> FileType.TEXT
@@ -659,26 +666,38 @@ class SshViewModel(
     }
 
     fun openTerminal(initialCommand: String? = null) {
+        terminalEmulator = null
         _uiState.update {
             it.copy(
                 showTerminalScreen = true,
-                terminalOutputBuffer = ""
+                terminalLines = emptyList(),
+                terminalRevision = 0,
+                terminalSessionStarted = false,
+                pendingInitialCommand = initialCommand,
+                isCtrlActive = false
             )
         }
+    }
 
+    fun startTerminalSession(cols: Int, rows: Int) {
+        if (uiState.value.terminalSessionStarted) return
+        val emulator = TerminalEmulator(cols, rows)
+        terminalEmulator = emulator
+        _uiState.update {
+            it.copy(
+                terminalSessionStarted = true,
+                terminalLines = emulator.getLines(),
+                terminalRevision = it.terminalRevision + 1
+            )
+        }
         viewModelScope.launch {
-            repository.startShellSession { chunk ->
-                _uiState.update { st ->
-                    var newBuffer = st.terminalOutputBuffer + chunk
-                    if (newBuffer.length > 50000) {
-                        newBuffer = newBuffer.takeLast(40000)
-                    }
-                    st.copy(terminalOutputBuffer = newBuffer)
-                }
+            repository.startShellSession(cols, rows) { chunk ->
+                feedTerminalOutput(chunk)
             }
-
-            if (!initialCommand.isNullOrBlank()) {
-                repository.sendShellInput("$initialCommand\n")
+            val initial = uiState.value.pendingInitialCommand
+            if (!initial.isNullOrBlank()) {
+                repository.sendShellInput(initial + "\r")
+                _uiState.update { it.copy(pendingInitialCommand = null) }
             }
         }
     }
@@ -686,13 +705,27 @@ class SshViewModel(
     fun closeTerminal() {
         viewModelScope.launch {
             repository.closeShellSession()
+            terminalEmulator = null
             _uiState.update {
                 it.copy(
                     showTerminalScreen = false,
                     isCtrlActive = false,
-                    terminalCommandInput = ""
+                    terminalSessionStarted = false,
+                    pendingInitialCommand = null,
+                    terminalLines = emptyList()
                 )
             }
+        }
+    }
+
+    private fun feedTerminalOutput(chunk: String) {
+        val emulator = terminalEmulator ?: return
+        emulator.feed(chunk)
+        _uiState.update { st ->
+            st.copy(
+                terminalLines = emulator.getLines(),
+                terminalRevision = st.terminalRevision + 1
+            )
         }
     }
 
@@ -700,79 +733,34 @@ class SshViewModel(
         _uiState.update { it.copy(isCtrlActive = !it.isCtrlActive) }
     }
 
-    fun updateTerminalCommand(cmd: String) {
-        _uiState.update { it.copy(terminalCommandInput = cmd) }
-    }
-
-    fun clearTerminalHistory() {
-        _uiState.update {
-            it.copy(
-                terminalCommandInput = "",
-                terminalOutputBuffer = "",
-                historyIndex = -1
-            )
-        }
-    }
-
-    fun navigateCommandHistory(direction: Int) {
-        val history = uiState.value.commandHistoryList
-        if (history.isEmpty()) return
-
-        val currentIndex = uiState.value.historyIndex
-        val newIndex = when {
-            direction < 0 -> (currentIndex + 1).coerceAtMost(history.size - 1)
-            direction > 0 -> (currentIndex - 1).coerceAtLeast(-1)
-            else -> currentIndex
-        }
-
-        val targetCmd = if (newIndex in history.indices) history[history.size - 1 - newIndex] else ""
-        _uiState.update {
-            it.copy(
-                historyIndex = newIndex,
-                terminalCommandInput = targetCmd
-            )
-        }
-    }
-
-    fun sendTerminalKey(key: String) {
-        viewModelScope.launch {
-            repository.sendShellInput(key)
-        }
-    }
-
-    fun runTerminalCommand() {
-        val input = uiState.value.terminalCommandInput
-        val isCtrl = uiState.value.isCtrlActive
-
-        val updatedCmdHistory = if (input.isNotBlank() && !uiState.value.commandHistoryList.contains(input)) {
-            uiState.value.commandHistoryList + input
-        } else {
-            uiState.value.commandHistoryList
-        }
-
-        _uiState.update {
-            it.copy(
-                terminalCommandInput = "",
-                commandHistoryList = updatedCmdHistory,
-                historyIndex = -1,
-                isCtrlActive = false
-            )
-        }
-
-        viewModelScope.launch {
-            if (isCtrl && input.isNotEmpty()) {
-                val firstChar = input[0]
-                repository.sendShellControlChar(firstChar)
-                if (input.length > 1) {
-                    repository.sendShellInput(input.substring(1) + "\n")
-                }
-            } else {
-                repository.sendShellInput("$input\n")
+    fun clearTerminal() {
+        val emulator = terminalEmulator
+        if (emulator != null) {
+            emulator.clearScreen()
+            _uiState.update { st ->
+                st.copy(
+                    terminalLines = emulator.getLines(),
+                    terminalRevision = st.terminalRevision + 1
+                )
             }
         }
     }
 
-    fun sendControlKey(char: Char) {
+    fun sendTerminalText(text: String) {
+        if (text.isEmpty()) return
+        viewModelScope.launch {
+            repository.sendShellInput(text)
+        }
+    }
+
+    fun sendTerminalRaw(bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        viewModelScope.launch {
+            repository.sendShellRaw(bytes)
+        }
+    }
+
+    fun sendTerminalControlChar(char: Char) {
         viewModelScope.launch {
             repository.sendShellControlChar(char)
             _uiState.update { it.copy(isCtrlActive = false) }
@@ -930,6 +918,7 @@ class SshViewModel(
         }
     }
 
+    @Suppress("unused")
     fun closeChecksumDialog() {
         _uiState.update { it.copy(checksumResult = null, isCalculatingChecksum = false) }
     }
