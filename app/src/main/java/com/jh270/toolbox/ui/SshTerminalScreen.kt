@@ -92,11 +92,19 @@ fun SshTerminalScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val fontSize = 13.sp
+    var fontSize by remember { mutableStateOf(13f) }
     var autoScroll by remember { mutableStateOf(true) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf(TextFieldValue("")) }
+
+    fun sendBackspace() {
+        viewModel.sendTerminalText("\u007F")
+        val text = input.text
+        if (text.isNotEmpty()) {
+            input = TextFieldValue(text.dropLast(1))
+        }
+    }
 
     LaunchedEffect(uiState.terminalRevision) {
         if (autoScroll && uiState.terminalLines.isNotEmpty()) {
@@ -150,6 +158,22 @@ fun SshTerminalScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { fontSize = (fontSize - 2f).coerceAtLeast(9f) }) {
+                        Text(
+                            text = "A-",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TerminalFg
+                        )
+                    }
+                    IconButton(onClick = { fontSize = (fontSize + 2f).coerceAtMost(24f) }) {
+                        Text(
+                            text = "A+",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TerminalFg
+                        )
+                    }
                     IconButton(onClick = { viewModel.clearTerminal() }) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
@@ -176,15 +200,16 @@ fun SshTerminalScreen(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                val charWidthPx = with(density) { fontSize.toPx() * 0.60f }
-                val lineHeightPx = with(density) { fontSize.toPx() * 1.22f }
+                val fs = fontSize.sp
+                val charWidthPx = with(density) { fs.toPx() * 0.60f }
+                val lineHeightPx = with(density) { fs.toPx() * 1.22f }
                 val widthPx = with(density) { maxWidth.toPx() }
                 val heightPx = with(density) { maxHeight.toPx() }
-                val cols = (widthPx / charWidthPx).toInt().coerceIn(40, 200)
-                val rows = (heightPx / lineHeightPx).toInt().coerceIn(6, 80)
+                val cols = (widthPx / charWidthPx).toInt().coerceIn(24, 240)
+                val rows = (heightPx / lineHeightPx).toInt().coerceIn(6, 100)
 
-                LaunchedEffect(cols, rows) {
-                    viewModel.startTerminalSession(cols, rows)
+                LaunchedEffect(cols) {
+                    viewModel.onTerminalSizeChanged(cols, rows)
                 }
 
                 Box(
@@ -203,7 +228,7 @@ fun SshTerminalScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(uiState.terminalLines.size) { index ->
-                            TerminalLineText(uiState.terminalLines[index], fontSize)
+                            TerminalLineText(uiState.terminalLines[index], fontSize.sp)
                         }
                     }
 
@@ -234,43 +259,43 @@ fun SshTerminalScreen(
                 }
             }
 
-            TerminalKeyBar(viewModel, uiState)
+            TerminalKeyBar(viewModel, uiState, ::sendBackspace)
 
             BasicTextField(
                 value = input,
                 onValueChange = { new ->
                     val oldComm = committedText(input)
                     val newComm = committedText(new)
-                    when {
-                        newComm.startsWith(oldComm) -> {
-                            val added = newComm.removePrefix(oldComm)
-                            if (added.isNotEmpty()) {
-                                if (uiState.isCtrlActive) {
-                                    viewModel.sendTerminalControlChar(added[0])
-                                    if (added.length > 1) {
-                                        viewModel.sendTerminalText(added.substring(1))
-                                    }
-                                } else {
+                    if (uiState.isCtrlActive && newComm.length > oldComm.length && newComm.startsWith(oldComm)) {
+                        val added = newComm.removePrefix(oldComm)
+                        viewModel.sendTerminalControlChar(added[0])
+                        if (added.length > 1) {
+                            viewModel.sendTerminalText(added.substring(1))
+                        }
+                        input = TextFieldValue("")
+                    } else {
+                        when {
+                            newComm.startsWith(oldComm) -> {
+                                val added = newComm.removePrefix(oldComm)
+                                if (added.isNotEmpty()) {
                                     viewModel.sendTerminalText(added)
                                 }
                             }
-                        }
-                        oldComm.startsWith(newComm) -> {
-                            val removed = oldComm.length - newComm.length
-                            repeat(removed) { viewModel.sendTerminalText("\u007F") }
-                        }
-                        else -> {
-                            repeat(oldComm.length) { viewModel.sendTerminalText("\u007F") }
-                            if (newComm.isNotEmpty()) {
-                                viewModel.sendTerminalText(newComm)
+                            oldComm.startsWith(newComm) -> {
+                                repeat(oldComm.length - newComm.length) {
+                                    viewModel.sendTerminalText("\u007F")
+                                }
+                            }
+                            else -> {
+                                repeat(oldComm.length) {
+                                    viewModel.sendTerminalText("\u007F")
+                                }
+                                if (newComm.isNotEmpty()) {
+                                    viewModel.sendTerminalText(newComm)
+                                }
                             }
                         }
-                    }
-                    val comp = new.composition
-                    input = if (comp != null && comp.start < comp.end && comp.end <= new.text.length) {
-                        new
-                    } else {
-                        TextFieldValue("", selection = TextRange(0))
+                        input = new
                     }
                 },
                 modifier = Modifier
@@ -322,7 +347,10 @@ fun SshTerminalScreen(
                     keyboardType = KeyboardType.Ascii
                 ),
                 keyboardActions = KeyboardActions(
-                    onSend = { viewModel.sendTerminalText("\r") }
+                    onSend = {
+                        viewModel.sendTerminalText("\r")
+                        input = TextFieldValue("")
+                    }
                 )
             )
         }
@@ -376,7 +404,11 @@ private fun TerminalLineText(line: TerminalEmulator.TerminalLine, fontSize: Text
 }
 
 @Composable
-private fun TerminalKeyBar(viewModel: SshViewModel, uiState: SshUiState) {
+private fun TerminalKeyBar(
+    viewModel: SshViewModel,
+    uiState: SshUiState,
+    onBackspace: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -391,7 +423,7 @@ private fun TerminalKeyBar(viewModel: SshViewModel, uiState: SshUiState) {
         TerminalKey(if (uiState.isCtrlActive) "CTRL ON" else "CTRL", active = uiState.isCtrlActive) {
             viewModel.toggleCtrlState()
         }
-        TerminalKey("DEL") { viewModel.sendTerminalText("\u007F") }
+        TerminalKey("DEL", onClick = onBackspace)
         TerminalKey("←") { viewModel.sendTerminalText("\u001B[D") }
         TerminalKey("↑") { viewModel.sendTerminalText("\u001B[A") }
         TerminalKey("↓") { viewModel.sendTerminalText("\u001B[B") }

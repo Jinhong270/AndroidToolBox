@@ -702,6 +702,28 @@ class SshViewModel(
         }
     }
 
+    fun onTerminalSizeChanged(cols: Int, rows: Int) {
+        if (uiState.value.terminalSessionStarted) {
+            resizeTerminal(cols, rows)
+        } else {
+            startTerminalSession(cols, rows)
+        }
+    }
+
+    private fun resizeTerminal(cols: Int, rows: Int) {
+        val emulator = terminalEmulator ?: return
+        emulator.resize(cols, rows)
+        _uiState.update { st ->
+            st.copy(
+                terminalLines = emulator.getLines(),
+                terminalRevision = st.terminalRevision + 1
+            )
+        }
+        viewModelScope.launch {
+            repository.resizeTerminal(cols, rows)
+        }
+    }
+
     fun closeTerminal() {
         viewModelScope.launch {
             repository.closeShellSession()
