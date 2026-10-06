@@ -2,9 +2,11 @@ package com.jh270.toolbox.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
+import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
@@ -19,12 +21,6 @@ enum class AppScreen {
     HOME,
     SSH_MANAGER
 }
-
-data class TerminalRecord(
-    val prompt: String,
-    val command: String,
-    val output: String
-)
 
 data class SshUiState(
     val currentScreen: AppScreen = AppScreen.HOME,
@@ -50,13 +46,18 @@ data class SshUiState(
     val showCompressDialog: Boolean = false,
     val showCreateFolderDialog: Boolean = false,
     val showCreateFileDialog: Boolean = false,
+    val showArchiveInspector: Boolean = false,
+    val archiveTargetFile: RemoteFile? = null,
+    val archiveEntries: List<ArchiveEntryItem> = emptyList(),
+    val isLoadingArchiveEntries: Boolean = false,
+    val archiveError: String? = null,
     val showTerminalScreen: Boolean = false,
     val terminalPath: String = "/",
-    val terminalHistory: List<TerminalRecord> = emptyList(),
+    val terminalOutputBuffer: String = "",
+    val terminalCommandInput: String = "",
+    val isCtrlActive: Boolean = false,
     val commandHistoryList: List<String> = emptyList(),
     val historyIndex: Int = -1,
-    val terminalCommandInput: String = "",
-    val isExecutingCommand: Boolean = false,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
     val checksumResult: ChecksumResult? = null,
@@ -100,7 +101,7 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalHistory = emptyList()
+                    terminalOutputBuffer = ""
                 )
             }
         }
@@ -210,7 +211,7 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalHistory = emptyList()
+                    terminalOutputBuffer = ""
                 )
             }
         }
@@ -326,6 +327,11 @@ class SshViewModel(
             return
         }
 
+        if (file.fileType == FileType.ARCHIVE) {
+            openArchiveInspector(file)
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isPreviewLoading = true, previewError = null, selectedFilePreview = null) }
             val result = repository.previewFile(file)
@@ -342,6 +348,73 @@ class SshViewModel(
                     it.copy(
                         isPreviewLoading = false,
                         previewError = error.message ?: "预览文件失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun openArchiveInspector(file: RemoteFile) {
+        _uiState.update {
+            it.copy(
+                showArchiveInspector = true,
+                archiveTargetFile = file,
+                isLoadingArchiveEntries = true,
+                archiveError = null,
+                archiveEntries = emptyList()
+            )
+        }
+
+        viewModelScope.launch {
+            val result = repository.listArchiveEntries(file)
+            result.onSuccess { entries ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingArchiveEntries = false,
+                        archiveEntries = entries
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingArchiveEntries = false,
+                        archiveError = error.message ?: "无法读取压缩包结构"
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeArchiveInspector() {
+        _uiState.update {
+            it.copy(
+                showArchiveInspector = false,
+                archiveTargetFile = null,
+                archiveEntries = emptyList(),
+                archiveError = null,
+                isLoadingArchiveEntries = false
+            )
+        }
+    }
+
+    fun previewArchiveEntry(entryPath: String) {
+        val targetArchive = uiState.value.archiveTargetFile ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPreviewLoading = true, previewError = null, selectedFilePreview = null) }
+            val result = repository.previewArchiveEntry(targetArchive, entryPath)
+            result.onSuccess { preview ->
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        selectedFilePreview = preview,
+                        previewError = preview.errorMessage
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isPreviewLoading = false,
+                        previewError = error.message ?: "预览压缩包内文件失败"
                     )
                 }
             }
@@ -412,12 +485,51 @@ class SshViewModel(
         _uiState.update { it.copy(showCompressDialog = false) }
     }
 
-    fun openTerminal() {
-        _uiState.update { it.copy(showTerminalScreen = true) }
+    fun executeRemoteFileInTerminal(file: RemoteFile) {
+        closeActionMenu()
+        openTerminal(initialCommand = "chmod +x \"${file.path}\" && \"${file.path}\"")
+    }
+
+    fun openTerminal(initialCommand: String? = null) {
+        _uiState.update {
+            it.copy(
+                showTerminalScreen = true,
+                terminalOutputBuffer = ""
+            )
+        }
+
+        viewModelScope.launch {
+            repository.startShellSession { chunk ->
+                _uiState.update { st ->
+                    var newBuffer = st.terminalOutputBuffer + chunk
+                    if (newBuffer.length > 50000) {
+                        newBuffer = newBuffer.takeLast(40000)
+                    }
+                    st.copy(terminalOutputBuffer = newBuffer)
+                }
+            }
+
+            if (!initialCommand.isNullOrBlank()) {
+                repository.sendShellInput("$initialCommand\n")
+            }
+        }
     }
 
     fun closeTerminal() {
-        _uiState.update { it.copy(showTerminalScreen = false) }
+        viewModelScope.launch {
+            repository.closeShellSession()
+            _uiState.update {
+                it.copy(
+                    showTerminalScreen = false,
+                    isCtrlActive = false,
+                    terminalCommandInput = ""
+                )
+            }
+        }
+    }
+
+    fun toggleCtrlState() {
+        _uiState.update { it.copy(isCtrlActive = !it.isCtrlActive) }
     }
 
     fun updateTerminalCommand(cmd: String) {
@@ -428,27 +540,9 @@ class SshViewModel(
         _uiState.update {
             it.copy(
                 terminalCommandInput = "",
-                terminalHistory = emptyList(),
+                terminalOutputBuffer = "",
                 historyIndex = -1
             )
-        }
-    }
-
-    fun cancelActiveTerminalCommand() {
-        viewModelScope.launch {
-            repository.cancelActiveCommand()
-            _uiState.update { st ->
-                val list = st.terminalHistory.toMutableList()
-                if (list.isNotEmpty()) {
-                    val lastIdx = list.size - 1
-                    val currentRec = list[lastIdx]
-                    list[lastIdx] = currentRec.copy(output = currentRec.output + "\n[命令已由用户强制中止 ^C]")
-                }
-                st.copy(
-                    terminalHistory = list,
-                    isExecutingCommand = false
-                )
-            }
         }
     }
 
@@ -472,127 +566,48 @@ class SshViewModel(
         }
     }
 
-    fun runTerminalCommand(commandOverride: String? = null) {
-        val cmd = (commandOverride ?: uiState.value.terminalCommandInput).trim()
-        if (cmd.isBlank()) return
-
-        val state = uiState.value
-
-        if (state.isExecutingCommand) {
-            viewModelScope.launch {
-                _uiState.update { st ->
-                    val list = st.terminalHistory.toMutableList()
-                    if (list.isNotEmpty()) {
-                        val lastIdx = list.size - 1
-                        val currentRec = list[lastIdx]
-                        list[lastIdx] = currentRec.copy(output = currentRec.output + "\n[输入]: $cmd\n")
-                    }
-                    st.copy(
-                        terminalCommandInput = "",
-                        terminalHistory = list
-                    )
-                }
-                repository.sendInputToActiveCommand(cmd)
-            }
-            return
+    fun sendTerminalKey(key: String) {
+        viewModelScope.launch {
+            repository.sendShellInput(key)
         }
+    }
 
-        if (cmd.lowercase() == "clear") {
-            clearTerminalHistory()
-            return
-        }
+    fun runTerminalCommand() {
+        val input = uiState.value.terminalCommandInput
+        val isCtrl = uiState.value.isCtrlActive
 
-        val promptStr = "${state.config.username}@${state.config.host}:${state.terminalPath}$ "
-
-        val newRecord = TerminalRecord(
-            prompt = promptStr,
-            command = cmd,
-            output = ""
-        )
-
-        val updatedCmdHistory = if (!state.commandHistoryList.contains(cmd)) {
-            state.commandHistoryList + cmd
+        val updatedCmdHistory = if (input.isNotBlank() && !uiState.value.commandHistoryList.contains(input)) {
+            uiState.value.commandHistoryList + input
         } else {
-            state.commandHistoryList
+            uiState.value.commandHistoryList
         }
 
         _uiState.update {
             it.copy(
                 terminalCommandInput = "",
-                terminalHistory = it.terminalHistory + newRecord,
                 commandHistoryList = updatedCmdHistory,
                 historyIndex = -1,
-                isExecutingCommand = true
+                isCtrlActive = false
             )
         }
 
         viewModelScope.launch {
-            val fullCmd = if (cmd.startsWith("cd ")) {
-                "cd \"${state.terminalPath}\" && $cmd && pwd"
+            if (isCtrl && input.isNotEmpty()) {
+                val firstChar = input[0]
+                repository.sendShellControlChar(firstChar)
+                if (input.length > 1) {
+                    repository.sendShellInput(input.substring(1) + "\n")
+                }
             } else {
-                "cd \"${state.terminalPath}\" && $cmd"
+                repository.sendShellInput("$input\n")
             }
+        }
+    }
 
-            var accumulatedOutput = ""
-
-            val result = repository.executeShellCommandStreaming(fullCmd) { chunk ->
-                accumulatedOutput += chunk
-                _uiState.update { st ->
-                    val list = st.terminalHistory.toMutableList()
-                    if (list.isNotEmpty()) {
-                        val lastIdx = list.size - 1
-                        val currentRec = list[lastIdx]
-                        var curOutput = accumulatedOutput
-
-                        if (cmd.startsWith("cd ")) {
-                            val lines = accumulatedOutput.lines().filter { l -> l.isNotBlank() }
-                            if (lines.isNotEmpty()) {
-                                curOutput = lines.dropLast(1).joinToString("\n")
-                            }
-                        }
-
-                        list[lastIdx] = currentRec.copy(output = curOutput)
-                    }
-                    st.copy(terminalHistory = list)
-                }
-            }
-
-            result.onSuccess {
-                _uiState.update { st ->
-                    var finalPath = st.terminalPath
-                    val list = st.terminalHistory.toMutableList()
-                    if (list.isNotEmpty()) {
-                        val lastIdx = list.size - 1
-                        val currentRec = list[lastIdx]
-                        if (cmd.startsWith("cd ")) {
-                            val lines = accumulatedOutput.lines().filter { l -> l.isNotBlank() }
-                            if (lines.isNotEmpty()) {
-                                finalPath = lines.last().trim()
-                                val cleanOut = lines.dropLast(1).joinToString("\n")
-                                list[lastIdx] = currentRec.copy(output = cleanOut)
-                            }
-                        }
-                    }
-                    st.copy(
-                        terminalPath = finalPath,
-                        terminalHistory = list,
-                        isExecutingCommand = false
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { st ->
-                    val list = st.terminalHistory.toMutableList()
-                    if (list.isNotEmpty()) {
-                        val lastIdx = list.size - 1
-                        val currentRec = list[lastIdx]
-                        list[lastIdx] = currentRec.copy(output = currentRec.output + "\n错误: ${error.message}")
-                    }
-                    st.copy(
-                        terminalHistory = list,
-                        isExecutingCommand = false
-                    )
-                }
-            }
+    fun sendControlKey(char: Char) {
+        viewModelScope.launch {
+            repository.sendShellControlChar(char)
+            _uiState.update { it.copy(isCtrlActive = false) }
         }
     }
 

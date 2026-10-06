@@ -1,9 +1,11 @@
 package com.jh270.toolbox.ssh
 
 import com.jcraft.jsch.ChannelExec
+import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
@@ -16,15 +18,23 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.Vector
+import java.util.zip.GZIPInputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 class SshRepository {
     private var session: Session? = null
     private var sftpChannel: ChannelSftp? = null
-    private var activeExecChannel: ChannelExec? = null
-    private var activeCommandOutputStream: OutputStream? = null
+
+    private var shellChannel: ChannelShell? = null
+    private var shellInputStream: InputStream? = null
+    private var shellOutputStream: OutputStream? = null
+    private var shellReadingThread: Thread? = null
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
         var tempKeyFile: File? = null
@@ -94,15 +104,7 @@ class SshRepository {
     }
 
     private fun disconnectInternal() {
-        try {
-            activeCommandOutputStream?.close()
-        } catch (_: Exception) {}
-        activeCommandOutputStream = null
-
-        try {
-            activeExecChannel?.disconnect()
-        } catch (_: Exception) {}
-        activeExecChannel = null
+        closeShellSessionInternal()
 
         try {
             sftpChannel?.disconnect()
@@ -117,6 +119,90 @@ class SshRepository {
 
     fun isConnected(): Boolean {
         return session?.isConnected == true && sftpChannel?.isConnected == true
+    }
+
+    suspend fun startShellSession(onOutput: (String) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            closeShellSessionInternal()
+
+            val channel = sess.openChannel("shell") as ChannelShell
+            channel.setPty(true)
+            channel.setPtyType("vt100", 80, 24, 640, 480)
+
+            val inStream = channel.inputStream
+            val outStream = channel.outputStream
+
+            channel.connect(15000)
+
+            shellChannel = channel
+            shellInputStream = inStream
+            shellOutputStream = outStream
+
+            shellReadingThread = Thread {
+                val buffer = ByteArray(2048)
+                try {
+                    while (shellChannel?.isConnected == true) {
+                        if (inStream.available() > 0) {
+                            val read = inStream.read(buffer)
+                            if (read > 0) {
+                                val chunk = stripAnsiCodes(String(buffer, 0, read, Charsets.UTF_8))
+                                if (chunk.isNotEmpty()) {
+                                    onOutput(chunk)
+                                }
+                            }
+                        } else {
+                            Thread.sleep(30)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }.apply { start() }
+        }
+    }
+
+    suspend fun sendShellInput(input: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            shellOutputStream?.let { out ->
+                out.write(input.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+        }
+    }
+
+    suspend fun sendShellControlChar(char: Char) = withContext(Dispatchers.IO) {
+        runCatching {
+            val controlCode = (char.uppercaseChar() - 'A' + 1).toByte()
+            shellOutputStream?.let { out ->
+                out.write(byteArrayOf(controlCode))
+                out.flush()
+            }
+        }
+    }
+
+    suspend fun closeShellSession() = withContext(Dispatchers.IO) {
+        closeShellSessionInternal()
+    }
+
+    private fun closeShellSessionInternal() {
+        try {
+            shellReadingThread?.interrupt()
+        } catch (_: Exception) {}
+        shellReadingThread = null
+
+        try {
+            shellOutputStream?.close()
+        } catch (_: Exception) {}
+        shellOutputStream = null
+
+        try {
+            shellInputStream?.close()
+        } catch (_: Exception) {}
+        shellInputStream = null
+
+        try {
+            shellChannel?.disconnect()
+        } catch (_: Exception) {}
+        shellChannel = null
     }
 
     suspend fun listFiles(path: String): Result<List<RemoteFile>> = withContext(Dispatchers.IO) {
@@ -225,7 +311,7 @@ class SshRepository {
                 file.fileType
             }
 
-            val readLimit = if (fileType == FileType.TEXT) 204800 else maxBytes
+            val readLimit = if (fileType == FileType.TEXT || fileType == FileType.EXECUTABLE) 204800 else maxBytes
             val outputStream = ByteArrayOutputStream()
             val inputStream = channel.get(file.path)
 
@@ -261,7 +347,7 @@ class SshRepository {
                         fileType = FileType.IMAGE
                     )
                 }
-                FileType.TEXT -> {
+                FileType.TEXT, FileType.EXECUTABLE -> {
                     val text = String(bytes, Charsets.UTF_8)
                     FilePreview(
                         name = file.name,
@@ -270,7 +356,7 @@ class SshRepository {
                         permissions = file.permissions,
                         modifiedTime = file.modifiedTime,
                         content = text,
-                        fileType = FileType.TEXT
+                        fileType = fileType
                     )
                 }
                 else -> {
@@ -282,7 +368,7 @@ class SshRepository {
                             size = file.size,
                             permissions = file.permissions,
                             modifiedTime = file.modifiedTime,
-                            fileType = FileType.BINARY
+                            fileType = fileType
                         )
                     } else {
                         val text = String(bytes, Charsets.UTF_8)
@@ -293,9 +379,166 @@ class SshRepository {
                             permissions = file.permissions,
                             modifiedTime = file.modifiedTime,
                             content = text,
-                            fileType = FileType.TEXT
+                            fileType = fileType
                         )
                     }
+                }
+            }
+        }
+    }
+
+    suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val lowerName = file.name.lowercase()
+            val entriesList = mutableListOf<ArchiveEntryItem>()
+
+            if (lowerName.endsWith(".zip")) {
+                val inputStream = channel.get(file.path)
+                val zipIn = ZipInputStream(inputStream)
+                var entry: ZipEntry?
+                while (zipIn.nextEntry.also { entry = it } != null) {
+                    val e = entry!!
+                    val name = e.name.trimEnd('/')
+                    if (name.isNotBlank()) {
+                        entriesList.add(
+                            ArchiveEntryItem(
+                                path = e.name,
+                                name = name.substringAfterLast('/'),
+                                isDirectory = e.isDirectory,
+                                size = if (e.size >= 0) e.size else 0L
+                            )
+                        )
+                    }
+                    zipIn.closeEntry()
+                }
+                zipIn.close()
+                inputStream.close()
+            } else {
+                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                val escapedPath = escapeSh(file.path)
+                val cmd = when {
+                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztf $escapedPath"
+                    lowerName.endsWith(".tar") -> "tar -tf $escapedPath"
+                    else -> "tar -tf $escapedPath"
+                }
+
+                val execChan = sess.openChannel("exec") as ChannelExec
+                execChan.setCommand(cmd)
+                val inStream = execChan.inputStream
+                execChan.connect(15000)
+
+                val outputStr = inStream.bufferedReader(Charsets.UTF_8).readText()
+                execChan.disconnect()
+
+                outputStr.lines().forEach { line ->
+                    val cleanLine = line.trim()
+                    if (cleanLine.isNotBlank()) {
+                        val isDir = cleanLine.endsWith("/")
+                        val entryName = cleanLine.trimEnd('/')
+                        entriesList.add(
+                            ArchiveEntryItem(
+                                path = cleanLine,
+                                name = entryName.substringAfterLast('/'),
+                                isDirectory = isDir,
+                                size = 0L
+                            )
+                        )
+                    }
+                }
+            }
+
+            entriesList
+        }
+    }
+
+    suspend fun previewArchiveEntry(archiveFile: RemoteFile, entryPath: String): Result<FilePreview> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val lowerName = archiveFile.name.lowercase()
+            val outputStream = ByteArrayOutputStream()
+
+            if (lowerName.endsWith(".zip")) {
+                val inputStream = channel.get(archiveFile.path)
+                val zipIn = ZipInputStream(inputStream)
+                var entry: ZipEntry?
+                var found = false
+                val buffer = ByteArray(4096)
+                while (zipIn.nextEntry.also { entry = it } != null) {
+                    if (entry!!.name == entryPath || entry!!.name.trimEnd('/') == entryPath.trimEnd('/')) {
+                        found = true
+                        var read: Int
+                        while (zipIn.read(buffer).also { read = it } != -1) {
+                            outputStream.write(buffer, 0, read)
+                        }
+                        zipIn.closeEntry()
+                        break
+                    }
+                    zipIn.closeEntry()
+                }
+                zipIn.close()
+                inputStream.close()
+
+                if (!found) throw IllegalStateException("压缩包中未找到文件: $entryPath")
+            } else {
+                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                val escapedArchive = escapeSh(archiveFile.path)
+                val escapedEntry = escapeSh(entryPath)
+                val cmd = when {
+                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -xzOf $escapedArchive $escapedEntry"
+                    lowerName.endsWith(".tar") -> "tar -xOf $escapedArchive $escapedEntry"
+                    else -> "tar -xOf $escapedArchive $escapedEntry"
+                }
+
+                val execChan = sess.openChannel("exec") as ChannelExec
+                execChan.setCommand(cmd)
+                val inStream = execChan.inputStream
+                execChan.connect(15000)
+
+                val buffer = ByteArray(4096)
+                var read: Int
+                while (inStream.read(buffer).also { read = it } != -1) {
+                    outputStream.write(buffer, 0, read)
+                }
+                execChan.disconnect()
+            }
+
+            val bytes = outputStream.toByteArray()
+            val innerName = entryPath.trimEnd('/').substringAfterLast('/')
+            val innerType = determineFileType(innerName, false)
+
+            if (innerType == FileType.IMAGE) {
+                FilePreview(
+                    name = innerName,
+                    path = "${archiveFile.path}!/$entryPath",
+                    size = bytes.size.toLong(),
+                    permissions = "-rw-r--r--",
+                    modifiedTime = System.currentTimeMillis(),
+                    imageData = bytes,
+                    fileType = FileType.IMAGE
+                )
+            } else {
+                val isBin = isBinaryContent(bytes)
+                if (isBin) {
+                    FilePreview(
+                        name = innerName,
+                        path = "${archiveFile.path}!/$entryPath",
+                        size = bytes.size.toLong(),
+                        permissions = "-rw-r--r--",
+                        modifiedTime = System.currentTimeMillis(),
+                        fileType = FileType.BINARY
+                    )
+                } else {
+                    val text = String(bytes, Charsets.UTF_8)
+                    FilePreview(
+                        name = innerName,
+                        path = "${archiveFile.path}!/$entryPath",
+                        size = bytes.size.toLong(),
+                        permissions = "-rw-r--r--",
+                        modifiedTime = System.currentTimeMillis(),
+                        content = text,
+                        fileType = FileType.TEXT
+                    )
                 }
             }
         }
@@ -381,127 +624,131 @@ class SshRepository {
 
     suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val rawParent = file.path.substringBeforeLast('/', "")
             val parentDir = if (rawParent.isEmpty()) "/" else rawParent
             val fileName = file.name
 
-            val escapedDir = escapeSh(parentDir)
-            val escapedFile = escapeSh(fileName)
+            if (format == "zip") {
+                val zipFilePath = if (parentDir.endsWith("/")) "$parentDir$fileName.zip" else "$parentDir/$fileName.zip"
+                val outputStream = channel.put(zipFilePath, ChannelSftp.OVERWRITE)
+                val zipOut = ZipOutputStream(outputStream)
 
-            val cmd = when (format) {
-                "zip" -> "cd $escapedDir && (zip -r ${escapeSh("$fileName.zip")} $escapedFile || python3 -c \"import shutil; shutil.make_archive('$fileName', 'zip', '.', '$fileName')\")"
-                "tar.gz" -> "cd $escapedDir && tar -czf ${escapeSh("$fileName.tar.gz")} $escapedFile"
-                "tar" -> "cd $escapedDir && tar -cf ${escapeSh("$fileName.tar")} $escapedFile"
-                else -> throw IllegalArgumentException("不支持的压缩格式: $format")
+                if (file.isDirectory) {
+                    compressFolderRecursiveSFTP(channel, file.path, "", zipOut)
+                } else {
+                    val fileIn = channel.get(file.path)
+                    zipOut.putNextEntry(ZipEntry(fileName))
+                    val buffer = ByteArray(4096)
+                    var read: Int
+                    while (fileIn.read(buffer).also { read = it } != -1) {
+                        zipOut.write(buffer, 0, read)
+                    }
+                    fileIn.close()
+                    zipOut.closeEntry()
+                }
+
+                zipOut.close()
+                outputStream.close()
+            } else {
+                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                val escapedDir = escapeSh(parentDir)
+                val escapedFile = escapeSh(fileName)
+
+                val cmd = when (format) {
+                    "tar.gz" -> "cd $escapedDir && tar -czf ${escapeSh("$fileName.tar.gz")} $escapedFile"
+                    "tar" -> "cd $escapedDir && tar -cf ${escapeSh("$fileName.tar")} $escapedFile"
+                    else -> throw IllegalArgumentException("不支持的压缩格式: $format")
+                }
+                executeSshCommand(sess, cmd)
             }
-            executeSshCommand(sess, cmd)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun compressFolderRecursiveSFTP(channel: ChannelSftp, currentPath: String, zipPathPrefix: String, zipOut: ZipOutputStream) {
+        val entries = channel.ls(currentPath) as Vector<ChannelSftp.LsEntry>
+        for (entry in entries) {
+            val name = entry.filename
+            if (name == "." || name == "..") continue
+            val childFullPath = if (currentPath.endsWith("/")) "$currentPath$name" else "$currentPath/$name"
+            val childZipPath = if (zipPathPrefix.isEmpty()) name else "$zipPathPrefix/$name"
+
+            if (entry.attrs.isDir) {
+                zipOut.putNextEntry(ZipEntry("$childZipPath/"))
+                zipOut.closeEntry()
+                compressFolderRecursiveSFTP(channel, childFullPath, childZipPath, zipOut)
+            } else {
+                val fileIn = channel.get(childFullPath)
+                zipOut.putNextEntry(ZipEntry(childZipPath))
+                val buffer = ByteArray(4096)
+                var read: Int
+                while (fileIn.read(buffer).also { read = it } != -1) {
+                    zipOut.write(buffer, 0, read)
+                }
+                fileIn.close()
+                zipOut.closeEntry()
+            }
         }
     }
 
     suspend fun decompressFile(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val rawParent = file.path.substringBeforeLast('/', "")
             val parentDir = if (rawParent.isEmpty()) "/" else rawParent
             val fileName = file.name
             val lowerName = fileName.lowercase()
 
-            val escapedDir = escapeSh(parentDir)
-            val escapedFile = escapeSh(fileName)
+            if (lowerName.endsWith(".zip")) {
+                val inputStream = channel.get(file.path)
+                val zipIn = ZipInputStream(inputStream)
+                var entry: ZipEntry?
+                while (zipIn.nextEntry.also { entry = it } != null) {
+                    val e = entry!!
+                    val entryName = e.name
+                    val targetPath = if (parentDir.endsWith("/")) "$parentDir$entryName" else "$parentDir/$entryName"
 
-            val cmd = when {
-                lowerName.endsWith(".zip") -> "cd $escapedDir && (unzip -o $escapedFile || python3 -c \"import zipfile; zipfile.ZipFile('$fileName').extractall('.')\")"
-                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
-                lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
-                lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
-                lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
-                lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
-                else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
-            }
-            executeSshCommand(sess, cmd)
-        }
-    }
-
-    suspend fun cancelActiveCommand() = withContext(Dispatchers.IO) {
-        try {
-            activeCommandOutputStream?.close()
-        } catch (_: Exception) {}
-        activeCommandOutputStream = null
-
-        try {
-            activeExecChannel?.disconnect()
-        } catch (_: Exception) {}
-        activeExecChannel = null
-    }
-
-    suspend fun sendInputToActiveCommand(input: String) = withContext(Dispatchers.IO) {
-        runCatching {
-            activeCommandOutputStream?.let { out ->
-                out.write((input + "\n").toByteArray(Charsets.UTF_8))
-                out.flush()
-            }
-        }
-    }
-
-    suspend fun executeShellCommandStreaming(
-        command: String,
-        onChunk: (String) -> Unit
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val channel = sess.openChannel("exec") as ChannelExec
-            activeExecChannel = channel
-            channel.setPty(true)
-            channel.setPtyType("vt100")
-            channel.setCommand(command)
-
-            val errStream = ByteArrayOutputStream()
-            channel.setErrStream(errStream)
-            val inStream = channel.inputStream
-            val outStream = channel.outputStream
-            activeCommandOutputStream = outStream
-
-            channel.connect(15000)
-
-            val buffer = ByteArray(2048)
-            var read: Int
-
-            while (true) {
-                var chunkRead = false
-                if (inStream.available() > 0) {
-                    read = inStream.read(buffer)
-                    if (read > 0) {
-                        val chunk = stripAnsiCodes(String(buffer, 0, read, Charsets.UTF_8))
-                        if (chunk.isNotEmpty()) {
-                            onChunk(chunk)
+                    if (e.isDirectory) {
+                        try {
+                            channel.mkdir(targetPath)
+                        } catch (_: Exception) {}
+                    } else {
+                        val parentFolder = targetPath.substringBeforeLast('/', "")
+                        if (parentFolder.isNotEmpty()) {
+                            try {
+                                channel.mkdir(parentFolder)
+                            } catch (_: Exception) {}
                         }
-                        chunkRead = true
+
+                        val outStream = channel.put(targetPath, ChannelSftp.OVERWRITE)
+                        val buffer = ByteArray(4096)
+                        var read: Int
+                        while (zipIn.read(buffer).also { read = it } != -1) {
+                            outStream.write(buffer, 0, read)
+                        }
+                        outStream.close()
                     }
+                    zipIn.closeEntry()
                 }
+                zipIn.close()
+                inputStream.close()
+            } else {
+                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                val escapedDir = escapeSh(parentDir)
+                val escapedFile = escapeSh(fileName)
 
-                if (channel.isClosed) {
-                    if (inStream.available() <= 0) break
+                val cmd = when {
+                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
+                    lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
+                    lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
+                    lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
+                    lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
+                    else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
                 }
-
-                if (!chunkRead) {
-                    delay(40)
-                }
+                executeSshCommand(sess, cmd)
             }
-
-            val errStr = stripAnsiCodes(errStream.toString(Charsets.UTF_8.name()))
-            if (errStr.isNotBlank()) {
-                onChunk("\n$errStr")
-            }
-
-            channel.disconnect()
-            activeExecChannel = null
-            activeCommandOutputStream = null
         }
-    }
-
-    private fun stripAnsiCodes(text: String): String {
-        return text.replace("\u001B\\[[;?0-9]*[a-zA-Z]".toRegex(), "")
     }
 
     private fun executeSshCommand(sess: Session, command: String) {
@@ -529,14 +776,19 @@ class SshRepository {
 
     private fun determineFileType(filename: String, isDirectory: Boolean): FileType {
         if (isDirectory) return FileType.DIRECTORY
+        val lowerName = filename.lowercase()
+        if (lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz")) return FileType.ARCHIVE
+
         val extension = filename.substringAfterLast('.', "").lowercase()
         return when (extension) {
-            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini", "bash",
+            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini",
             "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
-            "env", "properties", "gradle", "kts", "sql", "csv", "rc", "pro" -> FileType.TEXT
+            "env", "properties", "gradle", "kts", "sql", "csv", "pro" -> FileType.TEXT
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg" -> FileType.IMAGE
-            "zip", "tar", "gz", "tgz", "rar", "7z", "bz2", "xz" -> FileType.ARCHIVE
-            "sh", "bin", "exe", "so", "dll", "deb", "apk" -> FileType.BINARY
+            "mp3", "wav", "aac", "ogg", "flac", "m4a" -> FileType.AUDIO
+            "mp4", "mkv", "avi", "mov", "webm", "3gp" -> FileType.VIDEO
+            "zip", "tar", "gz", "rar", "7z", "bz2", "xz" -> FileType.ARCHIVE
+            "sh", "rc", "bash", "bin", "exe", "so", "dll", "deb", "apk", "pl" -> FileType.EXECUTABLE
             else -> FileType.UNKNOWN
         }
     }
@@ -550,6 +802,10 @@ class SshRepository {
             }
         }
         return nullCount > 0
+    }
+
+    private fun stripAnsiCodes(text: String): String {
+        return text.replace("\u001B\\[[;?0-9]*[a-zA-Z]".toRegex(), "")
     }
 
     private fun formatSshException(e: Throwable): String {

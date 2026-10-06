@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -299,6 +301,17 @@ fun RemoteFileManagerScreen(
         }
     }
 
+    if (uiState.showArchiveInspector && uiState.archiveTargetFile != null) {
+        ArchiveInspectorDialog(
+            archiveFile = uiState.archiveTargetFile,
+            entries = uiState.archiveEntries,
+            isLoading = uiState.isLoadingArchiveEntries,
+            errorMessage = uiState.archiveError,
+            onSelectEntry = { entry -> viewModel.previewArchiveEntry(entry.path) },
+            onDismiss = { viewModel.closeArchiveInspector() }
+        )
+    }
+
     if (uiState.showCreateFolderDialog) {
         CreateFileDialog(
             title = "新建远程文件夹",
@@ -343,6 +356,10 @@ fun RemoteFileManagerScreen(
                 val file = uiState.actionTargetFile
                 viewModel.closeActionMenu()
                 viewModel.previewFile(file)
+            },
+            onExecuteInTerminal = {
+                val file = uiState.actionTargetFile
+                viewModel.executeRemoteFileInTerminal(file)
             },
             onRename = { viewModel.openRenameDialog() },
             onCalculateChecksum = { viewModel.executeCalculateChecksum() },
@@ -424,7 +441,10 @@ fun RemoteFileRow(
                 FileType.DIRECTORY -> Icons.Default.Folder
                 FileType.TEXT -> Icons.Default.Code
                 FileType.IMAGE -> Icons.Default.Image
+                FileType.AUDIO -> Icons.Default.Audiotrack
+                FileType.VIDEO -> Icons.Default.Videocam
                 FileType.ARCHIVE -> Icons.Default.Archive
+                FileType.EXECUTABLE -> Icons.Default.Terminal
                 FileType.BINARY -> Icons.Default.Terminal
                 FileType.UNKNOWN -> Icons.AutoMirrored.Filled.InsertDriveFile
             }
@@ -433,7 +453,10 @@ fun RemoteFileRow(
                 FileType.DIRECTORY -> Color(0xFFF59E0B)
                 FileType.TEXT -> Color(0xFF3B82F6)
                 FileType.IMAGE -> Color(0xFF8B5CF6)
+                FileType.AUDIO -> Color(0xFF06B6D4)
+                FileType.VIDEO -> Color(0xFFEF4444)
                 FileType.ARCHIVE -> Color(0xFF10B981)
+                FileType.EXECUTABLE -> Color(0xFF10B981)
                 FileType.BINARY -> Color(0xFFEF4444)
                 FileType.UNKNOWN -> Color(0xFF64748B)
             }

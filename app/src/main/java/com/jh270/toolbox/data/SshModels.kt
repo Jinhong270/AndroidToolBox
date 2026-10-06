@@ -9,7 +9,10 @@ enum class FileType {
     DIRECTORY,
     TEXT,
     IMAGE,
+    AUDIO,
+    VIDEO,
     ARCHIVE,
+    EXECUTABLE,
     BINARY,
     UNKNOWN
 }
@@ -39,6 +42,13 @@ data class RemoteFile(
     val permissions: String,
     val modifiedTime: Long,
     val fileType: FileType = FileType.UNKNOWN
+)
+
+data class ArchiveEntryItem(
+    val path: String,
+    val name: String,
+    val isDirectory: Boolean,
+    val size: Long
 )
 
 data class ChecksumResult(
