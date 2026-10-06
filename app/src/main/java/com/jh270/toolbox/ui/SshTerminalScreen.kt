@@ -259,7 +259,11 @@ fun SshTerminalScreen(
                 }
             }
 
-            TerminalKeyBar(viewModel, uiState, ::sendBackspace)
+            if (uiState.terminalClosed) {
+                TerminalClosedBar(onExit = { viewModel.closeTerminal() })
+            } else {
+                TerminalKeyBar(viewModel, uiState, ::sendBackspace)
+            }
 
             BasicTextField(
                 value = input,
@@ -348,8 +352,12 @@ fun SshTerminalScreen(
                 ),
                 keyboardActions = KeyboardActions(
                     onSend = {
-                        viewModel.sendTerminalText("\r")
-                        input = TextFieldValue("")
+                        if (uiState.terminalClosed) {
+                            viewModel.closeTerminal()
+                        } else {
+                            viewModel.sendTerminalText("\r")
+                            input = TextFieldValue("")
+                        }
                     }
                 )
             )
@@ -401,6 +409,31 @@ private fun TerminalLineText(line: TerminalEmulator.TerminalLine, fontSize: Text
         overflow = TextOverflow.Clip,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+@Composable
+private fun TerminalClosedBar(onExit: () -> Unit) {
+    Surface(
+        onClick = onExit,
+        color = TerminalBar,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "[终端已关闭，按Enter退出]",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = TerminalAccent
+            )
+        }
+    }
 }
 
 @Composable

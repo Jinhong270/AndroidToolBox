@@ -36,6 +36,9 @@ class SshRepository {
     private var shellOutputStream: OutputStream? = null
     private var shellReadingThread: Thread? = null
 
+    @Volatile
+    private var shellClosingLocally = false
+
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
         var tempKeyFile: File? = null
         try {
@@ -123,10 +126,11 @@ class SshRepository {
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
-    suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             closeShellSessionInternal()
+            shellClosingLocally = false
 
             val channel = sess.openChannel("shell") as ChannelShell
             channel.setPty(true)
@@ -149,15 +153,22 @@ class SshRepository {
 
             shellReadingThread = Thread {
                 val buffer = ByteArray(4096)
+                var eof = false
                 try {
                     while (shellChannel?.isConnected == true) {
                         val read = inStream.read(buffer)
-                        if (read < 0) break
+                        if (read < 0) {
+                            eof = true
+                            break
+                        }
                         if (read > 0) {
                             onOutput(String(buffer, 0, read, Charsets.UTF_8))
                         }
                     }
                 } catch (_: Exception) {}
+                if (eof && !shellClosingLocally) {
+                    onExit()
+                }
             }.apply { start() }
         }
     }
@@ -194,6 +205,8 @@ class SshRepository {
     }
 
     private fun closeShellSessionInternal() {
+        shellClosingLocally = true
+
         try {
             shellReadingThread?.interrupt()
         } catch (_: Exception) {}

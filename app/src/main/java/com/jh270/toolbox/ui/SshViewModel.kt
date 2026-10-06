@@ -60,6 +60,7 @@ data class SshUiState(
     val terminalRevision: Int = 0,
     val terminalSessionStarted: Boolean = false,
     val pendingInitialCommand: String? = null,
+    val terminalClosed: Boolean = false,
     val isCtrlActive: Boolean = false,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
@@ -118,6 +119,7 @@ class SshViewModel(
                     terminalLines = emptyList(),
                     terminalSessionStarted = false,
                     pendingInitialCommand = null,
+                    terminalClosed = false,
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
@@ -238,6 +240,7 @@ class SshViewModel(
                     terminalLines = emptyList(),
                     terminalSessionStarted = false,
                     pendingInitialCommand = null,
+                    terminalClosed = false,
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
@@ -674,6 +677,7 @@ class SshViewModel(
                 terminalRevision = 0,
                 terminalSessionStarted = false,
                 pendingInitialCommand = initialCommand,
+                terminalClosed = false,
                 isCtrlActive = false
             )
         }
@@ -686,13 +690,16 @@ class SshViewModel(
         _uiState.update {
             it.copy(
                 terminalSessionStarted = true,
+                terminalClosed = false,
                 terminalLines = emulator.getLines(),
                 terminalRevision = it.terminalRevision + 1
             )
         }
         viewModelScope.launch {
-            repository.startShellSession(cols, rows) { chunk ->
+            repository.startShellSession(cols, rows, { chunk ->
                 feedTerminalOutput(chunk)
+            }) {
+                _uiState.update { it.copy(terminalClosed = true, isCtrlActive = false) }
             }
             val initial = uiState.value.pendingInitialCommand
             if (!initial.isNullOrBlank()) {
@@ -734,6 +741,7 @@ class SshViewModel(
                     isCtrlActive = false,
                     terminalSessionStarted = false,
                     pendingInitialCommand = null,
+                    terminalClosed = false,
                     terminalLines = emptyList()
                 )
             }
