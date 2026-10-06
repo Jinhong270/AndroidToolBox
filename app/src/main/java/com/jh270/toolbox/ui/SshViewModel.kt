@@ -46,6 +46,7 @@ data class SshUiState(
     val showCompressDialog: Boolean = false,
     val showCreateFolderDialog: Boolean = false,
     val showCreateFileDialog: Boolean = false,
+    val showFileDetailsDialog: Boolean = false,
     val isInArchiveMode: Boolean = false,
     val archiveFile: RemoteFile? = null,
     val archiveSubPath: String = "",
@@ -316,6 +317,26 @@ class SshViewModel(
         _uiState.update { it.copy(showCreateFileDialog = false) }
     }
 
+    fun openFileDetailsDialog() {
+        _uiState.update {
+            it.copy(
+                showActionMenu = false,
+                showFileDetailsDialog = true,
+                checksumResult = null,
+                actionErrorMessage = null
+            )
+        }
+    }
+
+    fun closeFileDetailsDialog() {
+        _uiState.update {
+            it.copy(
+                showFileDetailsDialog = false,
+                checksumResult = null
+            )
+        }
+    }
+
     fun executeCreateFolder(folderName: String) {
         if (folderName.isBlank()) return
         viewModelScope.launch {
@@ -496,7 +517,6 @@ class SshViewModel(
         val currentSub = state.archiveSubPath.trim('/')
 
         val subDirPrefix = if (currentSub.isEmpty()) "" else "$currentSub/"
-        val subDirDepth = if (currentSub.isEmpty()) 0 else currentSub.split('/').size
 
         val result = mutableListOf<RemoteFile>()
 
@@ -507,6 +527,8 @@ class SshViewModel(
                 isDirectory = true,
                 size = 0,
                 permissions = "drwxr-xr-x",
+                owner = "root",
+                group = "root",
                 modifiedTime = 0,
                 fileType = FileType.DIRECTORY
             )
@@ -537,6 +559,8 @@ class SshViewModel(
                     isDirectory = isDir,
                     size = if (isDir) 0L else e.size,
                     permissions = if (isDir) "drwxr-xr-x" else "-rw-r--r--",
+                    owner = "root",
+                    group = "root",
                     modifiedTime = System.currentTimeMillis(),
                     fileType = fType
                 )
@@ -828,7 +852,6 @@ class SshViewModel(
         val target = uiState.value.actionTargetFile ?: return
         _uiState.update {
             it.copy(
-                showActionMenu = false,
                 isCalculatingChecksum = true,
                 checksumResult = null,
                 actionErrorMessage = null

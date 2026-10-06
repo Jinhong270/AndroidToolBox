@@ -19,21 +19,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,7 +46,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,8 +71,9 @@ fun FileActionMenuDialog(
     targetFile: RemoteFile,
     onPreview: () -> Unit,
     onExecuteInTerminal: () -> Unit,
+    onDetails: () -> Unit,
+    onChecksum: () -> Unit,
     onRename: () -> Unit,
-    onCalculateChecksum: () -> Unit,
     onCompress: () -> Unit,
     onDecompress: () -> Unit,
     onDelete: () -> Unit,
@@ -117,6 +118,15 @@ fun FileActionMenuDialog(
                     .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                OutlinedButton(
+                    onClick = onDetails,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("详情")
+                }
+
                 if (!targetFile.isDirectory) {
                     OutlinedButton(
                         onClick = onPreview,
@@ -124,7 +134,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isArchive) "预览压缩包内部内容" else "查看 / 编辑内容")
+                        Text(if (isArchive) "浏览压缩包内容" else "查看 / 编辑内容")
                     }
                 }
 
@@ -139,7 +149,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("在终端中执行程序脚本")
+                        Text("在终端中执行")
                     }
                 }
 
@@ -154,12 +164,12 @@ fun FileActionMenuDialog(
 
                 if (!targetFile.isDirectory) {
                     OutlinedButton(
-                        onClick = onCalculateChecksum,
+                        onClick = onChecksum,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(imageVector = Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("计算文件校验码 (MD5 / SHA256)")
+                        Text("校验")
                     }
                 }
 
@@ -179,7 +189,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.Unarchive, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("直接解压到当前目录")
+                        Text("解压")
                     }
                 }
 
@@ -193,14 +203,14 @@ fun FileActionMenuDialog(
                 ) {
                     Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("删除此${if (targetFile.isDirectory) "文件夹" else "文件"}")
+                    Text("删除")
                 }
             }
         },
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("取消")
+                Text("关闭")
             }
         }
     )
@@ -225,7 +235,7 @@ fun ArchiveInspectorDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "压缩包内部结构预览 (无须解压)",
+                    text = "压缩包内部结构预览",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -247,7 +257,7 @@ fun ArchiveInspectorDialog(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(text = "正在解析压缩包目录结构...")
+                            Text(text = "正在解析...")
                         }
                     }
                 } else if (errorMessage != null) {
@@ -406,7 +416,7 @@ fun CreateFileDialog(
                     )
                     Text("创建中...")
                 } else {
-                    Text("确认创建")
+                    Text("确认")
                 }
             }
         },
@@ -430,7 +440,7 @@ fun CompressDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "压缩 ${if (targetFile.isDirectory) "文件夹" else "文件"}",
+                text = "压缩",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -440,11 +450,6 @@ fun CompressDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "选择压缩格式：",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-
                 OutlinedButton(
                     onClick = { onConfirmCompress("zip") },
                     enabled = !isOperating,
@@ -515,7 +520,7 @@ fun RenameFileDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "重命名 ${if (targetFile.isDirectory) "文件夹" else "文件"}",
+                text = "重命名",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -555,7 +560,7 @@ fun RenameFileDialog(
                     )
                     Text("重命名中...")
                 } else {
-                    Text("确认重命名")
+                    Text("确认")
                 }
             }
         },
@@ -593,19 +598,11 @@ fun DeleteConfirmDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                if (targetFile.isDirectory) {
-                    Text(
-                        text = "警告：此文件夹及其内部包含的所有子文件将全部被永久删除，该操作不可撤销！",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                } else {
-                    Text(
-                        text = "警告：此文件将被永久删除，该操作不可撤销！",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                Text(
+                    text = "永久删除，操作不可撤销！",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
 
                 if (errorMessage != null) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -634,7 +631,7 @@ fun DeleteConfirmDialog(
                         color = MaterialTheme.colorScheme.onError,
                         strokeWidth = 2.dp
                     )
-                    Text("正在删除...")
+                    Text("删除中...")
                 } else {
                     Text("确认删除")
                 }
@@ -649,10 +646,12 @@ fun DeleteConfirmDialog(
 }
 
 @Composable
-fun ChecksumResultDialog(
+fun FileDetailDialog(
+    targetFile: RemoteFile,
     checksumResult: ChecksumResult?,
     isCalculating: Boolean,
     errorMessage: String?,
+    onCalculateChecksum: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -661,7 +660,7 @@ fun ChecksumResultDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "文件校验和 (Hash)",
+                text = "文件详情与校验",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -671,106 +670,103 @@ fun ChecksumResultDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isCalculating) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(text = "正在计算远程文件 MD5 / SHA256...")
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(text = "名称: ${targetFile.name}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text(text = "路径: ${targetFile.path}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        Text(text = "类型: ${if (targetFile.isDirectory) "文件夹" else targetFile.fileType.name}", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "大小: ${if (targetFile.isDirectory) "-" else formatFileSize(targetFile.size)}", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "权限位: ${targetFile.permissions}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                        Text(text = "所有者(UID:GID): ${targetFile.owner}:${targetFile.group}", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "修改时间: ${formatDate(targetFile.modifiedTime)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                if (!targetFile.isDirectory) {
+                    if (checksumResult == null && !isCalculating) {
+                        Button(
+                            onClick = onCalculateChecksum,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("计算 MD5 / SHA256 校验码")
+                        }
+                    } else if (isCalculating) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "正在计算校验码...")
+                            }
+                        }
+                    } else if (checksumResult != null) {
+                        Text(
+                            text = "MD5:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .padding(8.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = checksumResult.md5,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "SHA256:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .padding(8.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = checksumResult.sha256,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp
+                                )
+                            }
                         }
                     }
-                } else if (errorMessage != null) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+
+                    if (errorMessage != null) {
                         Text(
                             text = errorMessage,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodyMedium
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
                         )
-                    }
-                } else if (checksumResult != null) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                text = "文件名: ${checksumResult.fileName}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "路径: ${checksumResult.filePath}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "MD5 校验码:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .padding(8.dp)
-                    ) {
-                        SelectionContainer {
-                            Text(
-                                text = checksumResult.md5,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "SHA256 校验码:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .padding(8.dp)
-                    ) {
-                        SelectionContainer {
-                            Text(
-                                text = checksumResult.sha256,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                        }
                     }
                 }
             }
@@ -783,11 +779,9 @@ fun ChecksumResultDialog(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             val clip = ClipData.newPlainText("MD5", checksumResult.md5)
                             clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "已复制 MD5 到剪贴板", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "已复制 MD5", Toast.LENGTH_SHORT).show()
                         }
                     ) {
-                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text("复制 MD5")
                     }
 
@@ -796,11 +790,9 @@ fun ChecksumResultDialog(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             val clip = ClipData.newPlainText("SHA256", checksumResult.sha256)
                             clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "已复制 SHA256 到剪贴板", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "已复制 SHA256", Toast.LENGTH_SHORT).show()
                         }
                     ) {
-                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text("复制 SHA256")
                     }
                 }

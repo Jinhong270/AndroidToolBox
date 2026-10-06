@@ -224,6 +224,9 @@ class SshRepository {
                 val permissions = attrs.permissionsString
                 val mTime = attrs.mTime.toLong() * 1000
 
+                val owner = attrs.uId.toString()
+                val group = attrs.gId.toString()
+
                 val fullPath = when {
                     targetPath == "/" -> "/$name"
                     targetPath.endsWith("/") -> "$targetPath$name"
@@ -239,6 +242,8 @@ class SshRepository {
                         isDirectory = isDir,
                         size = size,
                         permissions = permissions,
+                        owner = owner,
+                        group = group,
                         modifiedTime = mTime,
                         fileType = type
                     )
@@ -259,6 +264,8 @@ class SshRepository {
                         isDirectory = true,
                         size = 0,
                         permissions = "drwxr-xr-x",
+                        owner = "root",
+                        group = "root",
                         modifiedTime = 0,
                         fileType = FileType.DIRECTORY
                     )
@@ -726,7 +733,7 @@ class SshRepository {
 
             val cmd = when {
                 lowerName.endsWith(".zip") -> "cd $escapedDir && (unzip -o $escapedFile || python3 -c \"import zipfile; zipfile.ZipFile('$fileName').extractall('.')\")"
-                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzF $escapedFile"
                 lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
                 lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
                 lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
