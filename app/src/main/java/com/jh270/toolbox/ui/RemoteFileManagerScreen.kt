@@ -363,12 +363,24 @@ fun RemoteFileManagerScreen(
                 val file = uiState.actionTargetFile
                 viewModel.executeRemoteFileInTerminal(file)
             },
+            onDetails = { viewModel.openFileDetailsDialog() },
+            onChecksum = { viewModel.openFileDetailsDialog() },
             onRename = { viewModel.openRenameDialog() },
-            onCalculateChecksum = { viewModel.executeCalculateChecksum() },
             onCompress = { viewModel.openCompressDialog() },
             onDecompress = { viewModel.executeDecompress() },
             onDelete = { viewModel.openDeleteConfirmDialog() },
             onDismiss = { viewModel.closeActionMenu() }
+        )
+    }
+
+    if (uiState.showFileDetailsDialog && uiState.actionTargetFile != null) {
+        FileDetailDialog(
+            targetFile = uiState.actionTargetFile,
+            checksumResult = uiState.checksumResult,
+            isCalculating = uiState.isCalculatingChecksum,
+            errorMessage = uiState.actionErrorMessage,
+            onCalculateChecksum = { viewModel.executeCalculateChecksum() },
+            onDismiss = { viewModel.closeFileDetailsDialog() }
         )
     }
 
@@ -402,14 +414,7 @@ fun RemoteFileManagerScreen(
         )
     }
 
-    if (uiState.checksumResult != null || uiState.isCalculatingChecksum) {
-        ChecksumResultDialog(
-            checksumResult = uiState.checksumResult,
-            isCalculating = uiState.isCalculatingChecksum,
-            errorMessage = uiState.actionErrorMessage,
-            onDismiss = { viewModel.closeChecksumDialog() }
-        )
-    }
+
 }
 
 @OptIn(ExperimentalFoundationApi::class)

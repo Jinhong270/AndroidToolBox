@@ -40,6 +40,8 @@ data class RemoteFile(
     val isDirectory: Boolean,
     val size: Long,
     val permissions: String,
+    val owner: String = "root",
+    val group: String = "root",
     val modifiedTime: Long,
     val fileType: FileType = FileType.UNKNOWN
 )
