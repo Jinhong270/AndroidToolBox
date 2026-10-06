@@ -151,8 +151,12 @@ class TerminalEmulator(
             result.add(buildLine(row, true))
         }
         val g = activeGrid()
+        var lastRow = cursorRow
         for (r in 0 until rows) {
-            result.add(buildLine(g[r], false))
+            if (isRowVisible(g[r])) lastRow = maxOf(lastRow, r)
+        }
+        for (r in 0..lastRow) {
+            result.add(buildLine(g[r], false, if (r == cursorRow) cursorCol else -1))
         }
         return result
     }
@@ -537,7 +541,7 @@ class TerminalEmulator(
         }
     }
 
-    private fun buildLine(row: Array<Cell>, trimTrailing: Boolean): TerminalLine {
+    private fun buildLine(row: Array<Cell>, trimTrailing: Boolean, cursorCol: Int = -1): TerminalLine {
         val runs = ArrayList<StyledRun>()
         val sb = StringBuilder()
         var current: Style? = null
@@ -548,7 +552,10 @@ class TerminalEmulator(
         for (c in 0 until end) {
             val cell = row[c]
             if (cell.ch == CONT) continue
-            val style = cell.style
+            var style = cell.style
+            if (c == cursorCol) {
+                style = Style(cell.style.bg, cell.style.fg, false, false, false, false, false, false)
+            }
             if (current == null) {
                 current = style
             } else if (current != style) {
@@ -565,6 +572,15 @@ class TerminalEmulator(
             runs.add(StyledRun("", Style()))
         }
         return TerminalLine(runs)
+    }
+
+    private fun isRowVisible(row: Array<Cell>): Boolean {
+        for (c in 0 until cols) {
+            val cell = row[c]
+            if (cell.ch != ' ' && cell.ch != CONT) return true
+            if (cell.style.bg != Style.DEFAULT_BG) return true
+        }
+        return false
     }
 
     private fun applySgr(params: IntArray) {
