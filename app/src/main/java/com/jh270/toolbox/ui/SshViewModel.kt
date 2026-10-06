@@ -476,12 +476,32 @@ class SshViewModel(
         val cmd = (commandOverride ?: uiState.value.terminalCommandInput).trim()
         if (cmd.isBlank()) return
 
+        val state = uiState.value
+
+        if (state.isExecutingCommand) {
+            viewModelScope.launch {
+                _uiState.update { st ->
+                    val list = st.terminalHistory.toMutableList()
+                    if (list.isNotEmpty()) {
+                        val lastIdx = list.size - 1
+                        val currentRec = list[lastIdx]
+                        list[lastIdx] = currentRec.copy(output = currentRec.output + "\n[输入]: $cmd\n")
+                    }
+                    st.copy(
+                        terminalCommandInput = "",
+                        terminalHistory = list
+                    )
+                }
+                repository.sendInputToActiveCommand(cmd)
+            }
+            return
+        }
+
         if (cmd.lowercase() == "clear") {
             clearTerminalHistory()
             return
         }
 
-        val state = uiState.value
         val promptStr = "${state.config.username}@${state.config.host}:${state.terminalPath}$ "
 
         val newRecord = TerminalRecord(

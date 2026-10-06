@@ -2,7 +2,6 @@ package com.jh270.toolbox.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,13 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -33,7 +32,6 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -95,7 +93,7 @@ fun SshTerminalScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "SSH 交互终端",
+                                    text = "SSH Terminal",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -147,6 +145,7 @@ fun SshTerminalScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .background(Color(0xFF090D16))
+                .imePadding()
         ) {
             Box(
                 modifier = Modifier
@@ -168,17 +167,11 @@ fun SshTerminalScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "ToolBox SSH Terminal v1.0",
+                                text = "ToolBox Terminal",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 14.sp,
                                 color = Color(0xFF475569),
                                 fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "输入命令并按回车执行，支持上方快捷指令",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                color = Color(0xFF334155)
                             )
                         }
                     }
@@ -235,9 +228,8 @@ fun SshTerminalScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
                             .padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TerminalControlChip(
@@ -273,16 +265,6 @@ fun SshTerminalScreen(
                                 tint = Color(0xFF38BDF8)
                             )
                         }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        val quickCmds = listOf("ls -la", "pwd", "top -n 1", "df -h", "free -m", "cd ~", "systemctl status")
-                        quickCmds.forEach { cmd ->
-                            TerminalQuickCmdChip(
-                                label = cmd,
-                                onClick = { viewModel.runTerminalCommand(cmd) }
-                            )
-                        }
                     }
 
                     Row(
@@ -294,7 +276,7 @@ fun SshTerminalScreen(
                             onValueChange = { viewModel.updateTerminalCommand(it) },
                             placeholder = {
                                 Text(
-                                    text = "输入终端命令...",
+                                    text = if (uiState.isExecutingCommand) "输入交互响应 (如 y/n)..." else "输入终端命令...",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 12.sp,
                                     color = Color(0xFF475569)
@@ -318,20 +300,12 @@ fun SshTerminalScreen(
                                 unfocusedBorderColor = Color(0xFF334155)
                             ),
                             trailingIcon = {
-                                if (uiState.isExecutingCommand) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        color = Color(0xFF38BDF8),
-                                        strokeWidth = 2.dp
+                                IconButton(onClick = { viewModel.runTerminalCommand() }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "发送",
+                                        tint = if (uiState.isExecutingCommand) Color(0xFFF59E0B) else Color(0xFF38BDF8)
                                     )
-                                } else {
-                                    IconButton(onClick = { viewModel.runTerminalCommand() }) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Send,
-                                            contentDescription = "发送",
-                                            tint = Color(0xFF38BDF8)
-                                        )
-                                    }
                                 }
                             }
                         )
@@ -358,25 +332,6 @@ fun TerminalControlChip(
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = color,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-}
-
-@Composable
-fun TerminalQuickCmdChip(
-    label: String,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
-    ) {
-        Text(
-            text = label,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            color = Color(0xFFE2E8F0),
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
