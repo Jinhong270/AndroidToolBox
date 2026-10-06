@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.Vector
 
@@ -23,6 +24,7 @@ class SshRepository {
     private var session: Session? = null
     private var sftpChannel: ChannelSftp? = null
     private var activeExecChannel: ChannelExec? = null
+    private var activeCommandOutputStream: OutputStream? = null
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
         var tempKeyFile: File? = null
@@ -92,6 +94,11 @@ class SshRepository {
     }
 
     private fun disconnectInternal() {
+        try {
+            activeCommandOutputStream?.close()
+        } catch (_: Exception) {}
+        activeCommandOutputStream = null
+
         try {
             activeExecChannel?.disconnect()
         } catch (_: Exception) {}
@@ -368,16 +375,25 @@ class SshRepository {
         }
     }
 
+    private fun escapeSh(arg: String): String {
+        return "'" + arg.replace("'", "'\\''") + "'"
+    }
+
     suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val parentDir = file.path.substringBeforeLast('/', "/")
+            val rawParent = file.path.substringBeforeLast('/', "")
+            val parentDir = if (rawParent.isEmpty()) "/" else rawParent
             val fileName = file.name
+
+            val escapedDir = escapeSh(parentDir)
+            val escapedFile = escapeSh(fileName)
+
             val cmd = when (format) {
-                "zip" -> "cd \"$parentDir\" && zip -r \"$fileName.zip\" \"$fileName\""
-                "tar.gz" -> "cd \"$parentDir\" && tar -czf \"$fileName.tar.gz\" \"$fileName\""
-                "tar" -> "cd \"$parentDir\" && tar -cf \"$fileName.tar\" \"$fileName\""
-                else -> throw IllegalArgumentException("不支持的压缩格式")
+                "zip" -> "cd $escapedDir && (zip -r ${escapeSh("$fileName.zip")} $escapedFile || python3 -c \"import shutil; shutil.make_archive('$fileName', 'zip', '.', '$fileName')\")"
+                "tar.gz" -> "cd $escapedDir && tar -czf ${escapeSh("$fileName.tar.gz")} $escapedFile"
+                "tar" -> "cd $escapedDir && tar -cf ${escapeSh("$fileName.tar")} $escapedFile"
+                else -> throw IllegalArgumentException("不支持的压缩格式: $format")
             }
             executeSshCommand(sess, cmd)
         }
@@ -386,17 +402,22 @@ class SshRepository {
     suspend fun decompressFile(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val parentDir = file.path.substringBeforeLast('/', "/")
+            val rawParent = file.path.substringBeforeLast('/', "")
+            val parentDir = if (rawParent.isEmpty()) "/" else rawParent
             val fileName = file.name
             val lowerName = fileName.lowercase()
+
+            val escapedDir = escapeSh(parentDir)
+            val escapedFile = escapeSh(fileName)
+
             val cmd = when {
-                lowerName.endsWith(".zip") -> "cd \"$parentDir\" && unzip \"$fileName\""
-                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd \"$parentDir\" && tar -xzf \"$fileName\""
-                lowerName.endsWith(".tar") -> "cd \"$parentDir\" && tar -xf \"$fileName\""
-                lowerName.endsWith(".gz") -> "cd \"$parentDir\" && gunzip \"$fileName\""
-                lowerName.endsWith(".rar") -> "cd \"$parentDir\" && unrar x \"$fileName\""
-                lowerName.endsWith(".7z") -> "cd \"$parentDir\" && 7z x \"$fileName\""
-                else -> throw IllegalArgumentException("不支持的解压格式")
+                lowerName.endsWith(".zip") -> "cd $escapedDir && (unzip -o $escapedFile || python3 -c \"import zipfile; zipfile.ZipFile('$fileName').extractall('.')\")"
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
+                lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
+                lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
+                lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
+                lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
+                else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
             }
             executeSshCommand(sess, cmd)
         }
@@ -404,9 +425,23 @@ class SshRepository {
 
     suspend fun cancelActiveCommand() = withContext(Dispatchers.IO) {
         try {
+            activeCommandOutputStream?.close()
+        } catch (_: Exception) {}
+        activeCommandOutputStream = null
+
+        try {
             activeExecChannel?.disconnect()
         } catch (_: Exception) {}
         activeExecChannel = null
+    }
+
+    suspend fun sendInputToActiveCommand(input: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            activeCommandOutputStream?.let { out ->
+                out.write((input + "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+        }
     }
 
     suspend fun executeShellCommandStreaming(
@@ -417,11 +452,16 @@ class SshRepository {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             val channel = sess.openChannel("exec") as ChannelExec
             activeExecChannel = channel
+            channel.setPty(true)
+            channel.setPtyType("vt100")
             channel.setCommand(command)
 
             val errStream = ByteArrayOutputStream()
             channel.setErrStream(errStream)
             val inStream = channel.inputStream
+            val outStream = channel.outputStream
+            activeCommandOutputStream = outStream
+
             channel.connect(15000)
 
             val buffer = ByteArray(2048)
@@ -456,6 +496,7 @@ class SshRepository {
 
             channel.disconnect()
             activeExecChannel = null
+            activeCommandOutputStream = null
         }
     }
 
@@ -490,12 +531,12 @@ class SshRepository {
         if (isDirectory) return FileType.DIRECTORY
         val extension = filename.substringAfterLast('.', "").lowercase()
         return when (extension) {
-            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini", "sh", "bash",
+            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini", "bash",
             "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
             "env", "properties", "gradle", "kts", "sql", "csv", "rc", "pro" -> FileType.TEXT
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg" -> FileType.IMAGE
             "zip", "tar", "gz", "tgz", "rar", "7z", "bz2", "xz" -> FileType.ARCHIVE
-            "bin", "exe", "so", "dll", "deb", "apk" -> FileType.BINARY
+            "sh", "bin", "exe", "so", "dll", "deb", "apk" -> FileType.BINARY
             else -> FileType.UNKNOWN
         }
     }
