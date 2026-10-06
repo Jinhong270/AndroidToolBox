@@ -364,7 +364,6 @@ fun RemoteFileManagerScreen(
                 viewModel.executeRemoteFileInTerminal(file)
             },
             onDetails = { viewModel.openFileDetailsDialog() },
-            onChecksum = { viewModel.openFileDetailsDialog() },
             onRename = { viewModel.openRenameDialog() },
             onCompress = { viewModel.openCompressDialog() },
             onDecompress = { viewModel.executeDecompress() },
