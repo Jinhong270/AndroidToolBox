@@ -46,8 +46,9 @@ data class SshUiState(
     val showCompressDialog: Boolean = false,
     val showCreateFolderDialog: Boolean = false,
     val showCreateFileDialog: Boolean = false,
-    val showArchiveInspector: Boolean = false,
-    val archiveTargetFile: RemoteFile? = null,
+    val isInArchiveMode: Boolean = false,
+    val archiveFile: RemoteFile? = null,
+    val archiveSubPath: String = "",
     val archiveEntries: List<ArchiveEntryItem> = emptyList(),
     val isLoadingArchiveEntries: Boolean = false,
     val archiveError: String? = null,
@@ -64,7 +65,15 @@ data class SshUiState(
     val actionSuccessMessage: String? = null,
     val actionErrorMessage: String? = null,
     val searchQuery: String = ""
-)
+) {
+    val displayPath: String
+        get() = if (isInArchiveMode) {
+            val archiveName = archiveFile?.name ?: ""
+            if (archiveSubPath.isEmpty()) archiveName else "$archiveName/$archiveSubPath"
+        } else {
+            currentPath
+        }
+}
 
 class SshViewModel(
     private val repository: SshRepository = SshRepository()
@@ -101,7 +110,11 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalOutputBuffer = ""
+                    terminalOutputBuffer = "",
+                    isInArchiveMode = false,
+                    archiveFile = null,
+                    archiveSubPath = "",
+                    archiveEntries = emptyList()
                 )
             }
         }
@@ -184,7 +197,11 @@ class SshViewModel(
                         isConnected = true,
                         currentPath = pwd,
                         terminalPath = pwd,
-                        connectionError = null
+                        connectionError = null,
+                        isInArchiveMode = false,
+                        archiveFile = null,
+                        archiveSubPath = "",
+                        archiveEntries = emptyList()
                     )
                 }
                 loadDirectory(pwd)
@@ -211,7 +228,11 @@ class SshViewModel(
                     selectedFilePreview = null,
                     actionTargetFile = null,
                     showTerminalScreen = false,
-                    terminalOutputBuffer = ""
+                    terminalOutputBuffer = "",
+                    isInArchiveMode = false,
+                    archiveFile = null,
+                    archiveSubPath = "",
+                    archiveEntries = emptyList()
                 )
             }
         }
@@ -219,7 +240,17 @@ class SshViewModel(
 
     fun loadDirectory(path: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingFiles = true, fileFetchError = null, currentPath = path) }
+            _uiState.update {
+                it.copy(
+                    isLoadingFiles = true,
+                    fileFetchError = null,
+                    currentPath = path,
+                    isInArchiveMode = false,
+                    archiveFile = null,
+                    archiveSubPath = "",
+                    archiveEntries = emptyList()
+                )
+            }
             val result = repository.listFiles(path)
             result.onSuccess { files ->
                 _uiState.update {
@@ -241,7 +272,18 @@ class SshViewModel(
     }
 
     fun navigateUp() {
-        val current = uiState.value.currentPath
+        val state = uiState.value
+        if (state.isInArchiveMode) {
+            if (state.archiveSubPath.isNotEmpty()) {
+                val parentSub = state.archiveSubPath.trimEnd('/').substringBeforeLast('/', "")
+                _uiState.update { it.copy(archiveSubPath = parentSub) }
+            } else {
+                exitArchiveMode()
+            }
+            return
+        }
+
+        val current = state.currentPath
         if (current == "/" || current.isBlank()) return
 
         val parent = current.trimEnd('/').substringBeforeLast('/', "")
@@ -250,7 +292,12 @@ class SshViewModel(
     }
 
     fun refreshDirectory() {
-        loadDirectory(uiState.value.currentPath)
+        val state = uiState.value
+        if (state.isInArchiveMode && state.archiveFile != null) {
+            enterArchiveMode(state.archiveFile)
+        } else {
+            loadDirectory(state.currentPath)
+        }
     }
 
     fun openCreateFolderDialog() {
@@ -322,13 +369,29 @@ class SshViewModel(
     }
 
     fun previewFile(file: RemoteFile) {
+        if (uiState.value.isInArchiveMode) {
+            if (file.isDirectory) {
+                if (file.name == "..") {
+                    navigateUp()
+                } else {
+                    val currentSub = uiState.value.archiveSubPath
+                    val newSub = if (currentSub.isEmpty()) file.name else "$currentSub/${file.name}"
+                    _uiState.update { it.copy(archiveSubPath = newSub) }
+                }
+            } else {
+                val fullEntryPath = file.path
+                previewArchiveEntry(fullEntryPath)
+            }
+            return
+        }
+
         if (file.isDirectory) {
             loadDirectory(file.path)
             return
         }
 
         if (file.fileType == FileType.ARCHIVE) {
-            openArchiveInspector(file)
+            enterArchiveMode(file)
             return
         }
 
@@ -354,11 +417,12 @@ class SshViewModel(
         }
     }
 
-    fun openArchiveInspector(file: RemoteFile) {
+    fun enterArchiveMode(file: RemoteFile) {
         _uiState.update {
             it.copy(
-                showArchiveInspector = true,
-                archiveTargetFile = file,
+                isInArchiveMode = true,
+                archiveFile = file,
+                archiveSubPath = "",
                 isLoadingArchiveEntries = true,
                 archiveError = null,
                 archiveEntries = emptyList()
@@ -378,18 +442,19 @@ class SshViewModel(
                 _uiState.update {
                     it.copy(
                         isLoadingArchiveEntries = false,
-                        archiveError = error.message ?: "无法读取压缩包结构"
+                        archiveError = error.message ?: "无法解析压缩包结构"
                     )
                 }
             }
         }
     }
 
-    fun closeArchiveInspector() {
+    fun exitArchiveMode() {
         _uiState.update {
             it.copy(
-                showArchiveInspector = false,
-                archiveTargetFile = null,
+                isInArchiveMode = false,
+                archiveFile = null,
+                archiveSubPath = "",
                 archiveEntries = emptyList(),
                 archiveError = null,
                 isLoadingArchiveEntries = false
@@ -398,7 +463,7 @@ class SshViewModel(
     }
 
     fun previewArchiveEntry(entryPath: String) {
-        val targetArchive = uiState.value.archiveTargetFile ?: return
+        val targetArchive = uiState.value.archiveFile ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isPreviewLoading = true, previewError = null, selectedFilePreview = null) }
             val result = repository.previewArchiveEntry(targetArchive, entryPath)
@@ -418,6 +483,85 @@ class SshViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun getActiveFileList(): List<RemoteFile> {
+        val state = uiState.value
+        if (!state.isInArchiveMode) {
+            return state.fileList
+        }
+
+        val entries = state.archiveEntries
+        val currentSub = state.archiveSubPath.trim('/')
+
+        val subDirPrefix = if (currentSub.isEmpty()) "" else "$currentSub/"
+        val subDirDepth = if (currentSub.isEmpty()) 0 else currentSub.split('/').size
+
+        val result = mutableListOf<RemoteFile>()
+
+        result.add(
+            RemoteFile(
+                name = "..",
+                path = if (currentSub.isEmpty()) state.archiveFile?.path ?: "/" else currentSub.substringBeforeLast('/', ""),
+                isDirectory = true,
+                size = 0,
+                permissions = "drwxr-xr-x",
+                modifiedTime = 0,
+                fileType = FileType.DIRECTORY
+            )
+        )
+
+        val directChildrenMap = mutableMapOf<String, RemoteFile>()
+
+        for (e in entries) {
+            val ePath = e.path.trim('/')
+            if (currentSub.isNotEmpty() && !ePath.startsWith(subDirPrefix)) {
+                continue
+            }
+
+            val relativePath = if (currentSub.isEmpty()) ePath else ePath.removePrefix(subDirPrefix)
+            if (relativePath.isEmpty()) continue
+
+            val parts = relativePath.split('/')
+            val childName = parts[0]
+            val isDir = e.isDirectory || parts.size > 1
+
+            if (!directChildrenMap.containsKey(childName)) {
+                val fullEntryPath = if (currentSub.isEmpty()) childName else "$currentSub/$childName"
+                val fType = if (isDir) FileType.DIRECTORY else determineFileTypeByName(childName)
+
+                directChildrenMap[childName] = RemoteFile(
+                    name = childName,
+                    path = fullEntryPath,
+                    isDirectory = isDir,
+                    size = if (isDir) 0L else e.size,
+                    permissions = if (isDir) "drwxr-xr-x" else "-rw-r--r--",
+                    modifiedTime = System.currentTimeMillis(),
+                    fileType = fType
+                )
+            }
+        }
+
+        val sortedChildren = directChildrenMap.values.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+        result.addAll(sortedChildren)
+        return result
+    }
+
+    private fun determineFileTypeByName(filename: String): FileType {
+        val lowerName = filename.lowercase()
+        if (lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz")) return FileType.ARCHIVE
+        val extension = filename.substringAfterLast('.', "").lowercase()
+        return when (extension) {
+            "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini",
+            "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
+            "env", "properties", "gradle", "kts", "sql", "csv", "pro" -> FileType.TEXT
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg" -> FileType.IMAGE
+            "mp3", "wav", "aac", "ogg", "flac", "m4a" -> FileType.AUDIO
+            "mp4", "mkv", "avi", "mov", "webm", "3gp" -> FileType.VIDEO
+            "zip", "tar", "gz", "rar", "7z", "bz2", "xz" -> FileType.ARCHIVE
+            "sh", "rc", "bash", "bin", "exe", "so", "dll", "deb", "apk", "pl" -> FileType.EXECUTABLE
+            else -> FileType.UNKNOWN
         }
     }
 
