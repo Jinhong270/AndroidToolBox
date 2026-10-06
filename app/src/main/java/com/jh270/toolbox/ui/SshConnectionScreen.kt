@@ -1,5 +1,6 @@
 package com.jh270.toolbox.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,15 +9,30 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -61,15 +77,15 @@ fun SshConnectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("SSH 文件管理器", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    OutlinedButton(
-                        onClick = { viewModel.returnToHome() },
-                        modifier = Modifier.padding(start = 8.dp)
-                    ) {
-                        Text("主页")
+                    IconButton(onClick = { viewModel.returnToHome() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "主页"
+                        )
                     }
                 },
+                title = { Text("SSH 连接配置", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -85,25 +101,124 @@ fun SshConnectionScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (uiState.savedProfiles.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Bookmark,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "常用 SSH 服务器预设",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        uiState.savedProfiles.forEach { profile ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable { viewModel.applyProfile(profile) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = profile.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${profile.config.username}@${profile.config.host}:${profile.config.port}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+
+                                    IconButton(onClick = { viewModel.deleteProfile(profile) }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "删除预设",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = MaterialTheme.colorScheme.surface
                 ),
-                shape = MaterialTheme.shapes.large
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
-                    Text(
-                        text = "SSH 远程设备连接配置",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Router,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "SSH 远程设备配置",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = uiState.config.name,
+                        onValueChange = { viewModel.updateConfigName(it) },
+                        label = { Text("预设备注名称 (选填)") },
+                        placeholder = { Text("如: 生产服务器 / 树莓派") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -142,13 +257,15 @@ fun SshConnectionScreen(
                         isError = !isUsernameValid && uiState.config.username.isNotEmpty()
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "认证方式",
+                        text = "身份认证方式",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -156,31 +273,61 @@ fun SshConnectionScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(end = 16.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { viewModel.updateAuthType(AuthType.PASSWORD) }
                         ) {
                             RadioButton(
                                 selected = uiState.config.authType == AuthType.PASSWORD,
                                 onClick = { viewModel.updateAuthType(AuthType.PASSWORD) }
                             )
-                            Text("密码认证", modifier = Modifier.padding(start = 4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Password,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(" 密码认证", modifier = Modifier.padding(start = 2.dp))
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { viewModel.updateAuthType(AuthType.PRIVATE_KEY) }
+                        ) {
                             RadioButton(
                                 selected = uiState.config.authType == AuthType.PRIVATE_KEY,
                                 onClick = { viewModel.updateAuthType(AuthType.PRIVATE_KEY) }
                             )
-                            Text("私钥认证", modifier = Modifier.padding(start = 4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(" 私钥认证", modifier = Modifier.padding(start = 2.dp))
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (uiState.config.authType == AuthType.PASSWORD) {
                         OutlinedTextField(
                             value = uiState.config.password,
                             onValueChange = { viewModel.updatePassword(it) },
                             label = { Text("密码") },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Default.Lock, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { showPassword = !showPassword }) {
+                                    Icon(
+                                        imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (showPassword) "隐藏密码" else "显示密码"
+                                    )
+                                }
+                            },
                             visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
@@ -189,7 +336,7 @@ fun SshConnectionScreen(
                         OutlinedTextField(
                             value = uiState.config.privateKey,
                             onValueChange = { viewModel.updatePrivateKey(it) },
-                            label = { Text("SSH 私钥内容") },
+                            label = { Text("SSH 私钥内容 (OpenSSH / PEM)") },
                             placeholder = { Text("-----BEGIN OPENSSH PRIVATE KEY----- ...") },
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 3,
@@ -208,32 +355,41 @@ fun SshConnectionScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    if (!isFormValid) {
-                        Text(
-                            text = "请完整填写 IP 地址、端口(1-65535)、用户名以及密码或私钥",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
-
-                    Button(
-                        onClick = { viewModel.connect() },
-                        enabled = isFormValid && !uiState.isConnecting,
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (uiState.isConnecting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .padding(end = 8.dp)
-                                    .height(18.dp)
-                                    .width(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
+                        OutlinedButton(
+                            onClick = { viewModel.saveCurrentProfile() },
+                            enabled = isFormValid,
+                            modifier = Modifier.weight(0.4f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BookmarkAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Text("正在连接 SSH 服务器...")
-                        } else {
-                            Text("连接 SSH 设备")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("保存配置")
+                        }
+
+                        Button(
+                            onClick = { viewModel.connect() },
+                            enabled = isFormValid && !uiState.isConnecting,
+                            modifier = Modifier.weight(0.6f)
+                        ) {
+                            if (uiState.isConnecting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Text("正在连接...")
+                            } else {
+                                Text("连接 SSH 设备")
+                            }
                         }
                     }
                 }
@@ -245,7 +401,8 @@ fun SshConnectionScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(

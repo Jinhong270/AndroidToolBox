@@ -11,15 +11,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = IndigoPrimaryDark,
+    onPrimary = IndigoOnPrimaryDark,
+    primaryContainer = IndigoContainerDark,
+    onPrimaryContainer = IndigoOnContainerDark,
+    secondary = SkySecondaryDark,
+    onSecondary = SkyOnSecondaryDark,
+    secondaryContainer = SkyContainerDark,
+    onSecondaryContainer = SkyOnContainerDark,
+    tertiary = EmeraldTertiaryDark,
+    onTertiary = EmeraldOnTertiaryDark,
+    background = SlateBackgroundDark,
+    onBackground = SlateOnBackgroundDark,
+    surface = SlateSurfaceDark,
+    onSurface = SlateOnSurfaceDark,
+    surfaceVariant = SlateSurfaceVariantDark,
+    onSurfaceVariant = SlateOnSurfaceVariantDark
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = IndigoPrimaryLight,
+    onPrimary = IndigoOnPrimaryLight,
+    primaryContainer = IndigoContainerLight,
+    onPrimaryContainer = IndigoOnContainerLight,
+    secondary = SkySecondaryLight,
+    onSecondary = SkyOnSecondaryLight,
+    secondaryContainer = SkyContainerLight,
+    onSecondaryContainer = SkyOnContainerLight,
+    background = SlateBackgroundLight,
+    onBackground = SlateOnBackgroundLight,
+    surface = SlateSurfaceLight,
+    onSurface = SlateOnSurfaceLight,
+    surfaceVariant = SlateSurfaceVariantLight,
+    onSurfaceVariant = SlateOnSurfaceVariantLight
 )
 
 @Composable
@@ -33,7 +57,6 @@ fun ToolBoxTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }

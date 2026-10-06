@@ -9,11 +9,13 @@ enum class FileType {
     DIRECTORY,
     TEXT,
     IMAGE,
+    ARCHIVE,
     BINARY,
     UNKNOWN
 }
 
 data class SshConfig(
+    val name: String = "",
     val host: String = "",
     val port: Int = 22,
     val username: String = "root",
@@ -21,6 +23,12 @@ data class SshConfig(
     val authType: AuthType = AuthType.PASSWORD,
     val privateKey: String = "",
     val passphrase: String = ""
+)
+
+data class SshProfile(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val config: SshConfig
 )
 
 data class RemoteFile(

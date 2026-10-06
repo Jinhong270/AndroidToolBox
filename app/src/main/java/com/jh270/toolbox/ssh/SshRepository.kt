@@ -1,5 +1,6 @@
 package com.jh270.toolbox.ssh
 
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -21,6 +22,7 @@ import java.util.Vector
 class SshRepository {
     private var session: Session? = null
     private var sftpChannel: ChannelSftp? = null
+    private var activeExecChannel: ChannelExec? = null
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
         var tempKeyFile: File? = null
@@ -90,6 +92,11 @@ class SshRepository {
     }
 
     private fun disconnectInternal() {
+        try {
+            activeExecChannel?.disconnect()
+        } catch (_: Exception) {}
+        activeExecChannel = null
+
         try {
             sftpChannel?.disconnect()
         } catch (_: Exception) {}
@@ -167,6 +174,25 @@ class SshRepository {
 
             finalResult.addAll(fileItems)
             finalResult
+        }
+    }
+
+    suspend fun createFolder(parentPath: String, folderName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val cleanParent = parentPath.trimEnd('/')
+            val newFolderPath = if (cleanParent.isEmpty()) "/$folderName" else "$cleanParent/$folderName"
+            channel.mkdir(newFolderPath)
+        }
+    }
+
+    suspend fun createFile(parentPath: String, fileName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val cleanParent = parentPath.trimEnd('/')
+            val newFilePath = if (cleanParent.isEmpty()) "/$fileName" else "$cleanParent/$fileName"
+            val inputStream = ByteArrayInputStream(ByteArray(0))
+            channel.put(inputStream, newFilePath)
         }
     }
 
@@ -376,47 +402,69 @@ class SshRepository {
         }
     }
 
+    suspend fun cancelActiveCommand() = withContext(Dispatchers.IO) {
+        try {
+            activeExecChannel?.disconnect()
+        } catch (_: Exception) {}
+        activeExecChannel = null
+    }
+
     suspend fun executeShellCommandStreaming(
         command: String,
         onChunk: (String) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
+            val channel = sess.openChannel("exec") as ChannelExec
+            activeExecChannel = channel
             channel.setCommand(command)
+
             val errStream = ByteArrayOutputStream()
             channel.setErrStream(errStream)
             val inStream = channel.inputStream
             channel.connect(15000)
 
-            val buffer = ByteArray(1024)
+            val buffer = ByteArray(2048)
             var read: Int
+
             while (true) {
+                var chunkRead = false
                 if (inStream.available() > 0) {
                     read = inStream.read(buffer)
                     if (read > 0) {
-                        val chunk = String(buffer, 0, read, Charsets.UTF_8)
-                        onChunk(chunk)
+                        val chunk = stripAnsiCodes(String(buffer, 0, read, Charsets.UTF_8))
+                        if (chunk.isNotEmpty()) {
+                            onChunk(chunk)
+                        }
+                        chunkRead = true
                     }
-                } else {
-                    if (channel.isClosed) {
-                        if (inStream.available() <= 0) break
-                    }
-                    delay(50)
+                }
+
+                if (channel.isClosed) {
+                    if (inStream.available() <= 0) break
+                }
+
+                if (!chunkRead) {
+                    delay(40)
                 }
             }
 
-            val errStr = errStream.toString(Charsets.UTF_8.name())
+            val errStr = stripAnsiCodes(errStream.toString(Charsets.UTF_8.name()))
             if (errStr.isNotBlank()) {
-                onChunk(errStr)
+                onChunk("\n$errStr")
             }
 
             channel.disconnect()
+            activeExecChannel = null
         }
     }
 
+    private fun stripAnsiCodes(text: String): String {
+        return text.replace("\u001B\\[[;?0-9]*[a-zA-Z]".toRegex(), "")
+    }
+
     private fun executeSshCommand(sess: Session, command: String) {
-        val channel = sess.openChannel("exec") as com.jcraft.jsch.ChannelExec
+        val channel = sess.openChannel("exec") as ChannelExec
         channel.setCommand(command)
         val errStream = ByteArrayOutputStream()
         channel.setErrStream(errStream)
@@ -433,7 +481,7 @@ class SshRepository {
 
         val exitStatus = channel.exitStatus
         if (exitStatus != 0) {
-            val errStr = errStream.toString(Charsets.UTF_8.name())
+            val errStr = stripAnsiCodes(errStream.toString(Charsets.UTF_8.name()))
             throw RuntimeException(if (errStr.isNotBlank()) errStr else "Command exited with status $exitStatus")
         }
     }
@@ -445,7 +493,9 @@ class SshRepository {
             "txt", "log", "json", "xml", "yaml", "yml", "conf", "cfg", "ini", "sh", "bash",
             "py", "kt", "java", "c", "cpp", "h", "hpp", "html", "css", "js", "ts", "md",
             "env", "properties", "gradle", "kts", "sql", "csv", "rc", "pro" -> FileType.TEXT
-            "jpg", "jpeg", "png", "gif", "webp", "bmp" -> FileType.IMAGE
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg" -> FileType.IMAGE
+            "zip", "tar", "gz", "tgz", "rar", "7z", "bz2", "xz" -> FileType.ARCHIVE
+            "bin", "exe", "so", "dll", "deb", "apk" -> FileType.BINARY
             else -> FileType.UNKNOWN
         }
     }
@@ -468,10 +518,10 @@ class SshRepository {
 
         return when {
             fullText.contains("no route to host") || fullText.contains("noroute") || fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
-                "地址错误"
+                "地址错误：无法找到目标主机，请检查 IP 地址或域名"
             }
             fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
-                "连接超时"
+                "连接超时：服务器未响应，请检查防火墙或网络状态"
             }
             fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") || fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("keyinvalid") -> {
                 "身份认证失败：用户名、密码或 SSH 私钥/密码错误"

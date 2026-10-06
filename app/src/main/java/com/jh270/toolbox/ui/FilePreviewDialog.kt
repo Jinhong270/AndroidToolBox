@@ -16,16 +16,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -84,7 +91,8 @@ fun FilePreviewDialog(
                     val typeName = when (filePreview.fileType) {
                         FileType.TEXT -> "文本文件"
                         FileType.IMAGE -> "图片文件"
-                        FileType.BINARY -> "二进制文件"
+                        FileType.ARCHIVE -> "压缩包"
+                        FileType.BINARY -> "二进制可执行文件"
                         FileType.DIRECTORY -> "文件夹"
                         FileType.UNKNOWN -> "其他类型文件"
                     }
@@ -155,7 +163,8 @@ fun FilePreviewDialog(
                                 )
                                 Text(
                                     text = "权限: ${filePreview.permissions}",
-                                    style = MaterialTheme.typography.bodySmall
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
@@ -233,6 +242,8 @@ fun FilePreviewDialog(
                                     onClick = { isEditMode = !isEditMode },
                                     modifier = Modifier.height(32.dp)
                                 ) {
+                                    Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(if (isEditMode) "切换查看" else "切换编辑")
                                 }
                             }
@@ -273,6 +284,28 @@ fun FilePreviewDialog(
                             }
                         }
 
+                        FileType.ARCHIVE -> {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(imageVector = Icons.Default.Archive, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "此文件为压缩包，长按此文件可通过操作菜单选择解压。",
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+
                         else -> {
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -304,13 +337,14 @@ fun FilePreviewDialog(
                                 CircularProgressIndicator(
                                     modifier = Modifier
                                         .padding(end = 6.dp)
-                                        .height(16.dp)
-                                        .width(16.dp),
+                                        .size(16.dp),
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     strokeWidth = 2.dp
                                 )
                                 Text("保存中")
                             } else {
+                                Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text("保存文本")
                             }
                         }
@@ -324,6 +358,8 @@ fun FilePreviewDialog(
                             Toast.makeText(context, "已复制文本内容到剪贴板", Toast.LENGTH_SHORT).show()
                         }
                     ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("复制文本")
                     }
                 }
