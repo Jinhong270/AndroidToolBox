@@ -85,7 +85,7 @@ fun SshConnectionScreen(
                         )
                     }
                 },
-                title = { Text("SSH 连接配置", fontWeight = FontWeight.Bold) },
+                title = { Text("SSH 连接", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -124,7 +124,7 @@ fun SshConnectionScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "常用 SSH 服务器预设",
+                                text = "已保存的主机",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -184,7 +184,7 @@ fun SshConnectionScreen(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
@@ -201,7 +201,7 @@ fun SshConnectionScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SSH 远程设备配置",
+                            text = "连接信息",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
