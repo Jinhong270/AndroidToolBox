@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -108,6 +109,35 @@ fun SshTerminalScreen(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf(TextFieldValue("")) }
+    var selectionAnchor by remember { mutableIntStateOf(-1) }
+    var selectionEnd by remember { mutableIntStateOf(-1) }
+    val selecting = selectionAnchor >= 0 && uiState.terminalLines.isNotEmpty()
+
+    fun clearSelection() {
+        selectionAnchor = -1
+        selectionEnd = -1
+    }
+
+    fun linePlain(index: Int): String {
+        val line = uiState.terminalLines.getOrNull(index) ?: return ""
+        return line.runs.joinToString("") { it.text }.trimEnd()
+    }
+
+    fun selectedText(): String {
+        val last = uiState.terminalLines.lastIndex
+        if (last < 0 || selectionAnchor < 0) return ""
+        val from = minOf(selectionAnchor, selectionEnd).coerceIn(0, last)
+        val to = maxOf(selectionAnchor, selectionEnd).coerceIn(0, last)
+        return (from..to).joinToString("\n") { linePlain(it) }
+    }
+
+    fun selectedCount(): Int {
+        val last = uiState.terminalLines.lastIndex
+        if (last < 0 || selectionAnchor < 0) return 0
+        val from = minOf(selectionAnchor, selectionEnd).coerceIn(0, last)
+        val to = maxOf(selectionAnchor, selectionEnd).coerceIn(0, last)
+        return to - from + 1
+    }
 
     fun copyText(text: String) {
         if (text.isEmpty()) return
@@ -142,7 +172,7 @@ fun SshTerminalScreen(
     }
 
     LaunchedEffect(uiState.terminalRevision) {
-        if (autoScroll && uiState.terminalLines.isNotEmpty()) {
+        if (autoScroll && !selecting && uiState.terminalLines.isNotEmpty()) {
             listState.scrollToItem(uiState.terminalLines.size - 1)
         }
     }
@@ -264,15 +294,24 @@ fun SshTerminalScreen(
                     ) {
                         items(uiState.terminalLines.size) { index ->
                             val line = uiState.terminalLines[index]
+                            val last = uiState.terminalLines.lastIndex
+                            val from = if (selecting) minOf(selectionAnchor, selectionEnd).coerceIn(0, last) else -1
+                            val to = if (selecting) maxOf(selectionAnchor, selectionEnd).coerceIn(0, last) else -1
                             TerminalLineText(
                                 line = line,
                                 fontSize = fontSize.sp,
+                                selected = selecting && index in from..to,
                                 onClick = {
-                                    focusRequester.requestFocus()
-                                    keyboardController?.show()
+                                    if (selecting) {
+                                        selectionEnd = index
+                                    } else {
+                                        focusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    }
                                 },
                                 onLongClick = {
-                                    copyText(line.runs.joinToString("") { it.text }.trimEnd())
+                                    selectionAnchor = index
+                                    selectionEnd = index
                                 }
                             )
                         }
@@ -305,6 +344,17 @@ fun SshTerminalScreen(
                 }
             }
 
+            if (selecting) {
+                SelectionBar(
+                    count = selectedCount(),
+                    onCopy = {
+                        copyText(selectedText())
+                        clearSelection()
+                    },
+                    onCancel = ::clearSelection
+                )
+            }
+
             if (uiState.terminalClosed) {
                 TerminalClosedBar(onExit = { viewModel.closeTerminal() })
             } else {
@@ -312,7 +362,14 @@ fun SshTerminalScreen(
                     viewModel = viewModel,
                     uiState = uiState,
                     onBackspace = ::sendBackspace,
-                    onCopy = { copyText(viewModel.terminalPlainText()) },
+                    onCopy = {
+                        if (selecting) {
+                            copyText(selectedText())
+                            clearSelection()
+                        } else {
+                            Toast.makeText(context, "先长按文字，再点另一行选择", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onPaste = ::pasteClipboard
                 )
             }
@@ -401,7 +458,12 @@ fun SshTerminalScreen(
                                 }
                                 Key.C -> {
                                     if (event.isCtrlPressed && event.isShiftPressed) {
-                                        copyText(viewModel.terminalPlainText())
+                                        if (selecting) {
+                                            copyText(selectedText())
+                                            clearSelection()
+                                        } else {
+                                            copyText(viewModel.terminalPlainText())
+                                        }
                                         true
                                     } else {
                                         false
@@ -438,6 +500,7 @@ fun SshTerminalScreen(
 private fun TerminalLineText(
     line: TerminalEmulator.TerminalLine,
     fontSize: TextUnit,
+    selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -483,8 +546,35 @@ private fun TerminalLineText(
         overflow = TextOverflow.Clip,
         modifier = Modifier
             .fillMaxWidth()
+            .background(if (selected) Color(0x5538BDF8) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     )
+}
+
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onCopy: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TerminalBar)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "已选 $count 行",
+            color = TerminalFg,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TerminalKey("复制", onClick = onCopy)
+        TerminalKey("取消", onClick = onCancel)
+    }
 }
 
 @Composable
