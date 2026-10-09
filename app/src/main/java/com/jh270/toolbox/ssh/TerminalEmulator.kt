@@ -71,6 +71,16 @@ class TerminalEmulator(
     private var savedCursorRow = 0
     private var savedCursorCol = 0
     private val savedStyle = Style()
+    private var bracketedPaste = false
+
+    val isBracketedPaste: Boolean
+        get() = bracketedPaste
+
+    fun plainText(): String {
+        return getLines().joinToString("\n") { line ->
+            line.runs.joinToString("") { it.text }.trimEnd()
+        }.trimEnd()
+    }
 
     fun feed(data: String) {
         var i = 0
@@ -178,6 +188,7 @@ class TerminalEmulator(
         cursorCol = 0
         wrapPending = false
         isAlt = false
+        bracketedPaste = false
         resetStyle()
     }
 
@@ -353,8 +364,9 @@ class TerminalEmulator(
     private fun handleMode(privateMode: Boolean, params: IntArray, enable: Boolean) {
         if (!privateMode) return
         for (p in params) {
-            if (p == 1049 || p == 47 || p == 1047) {
-                if (enable) enterAlt() else exitAlt()
+            when (p) {
+                1049, 47, 1047 -> if (enable) enterAlt() else exitAlt()
+                2004 -> bracketedPaste = enable
             }
         }
     }

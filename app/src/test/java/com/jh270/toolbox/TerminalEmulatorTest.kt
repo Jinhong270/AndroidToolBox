@@ -2,6 +2,7 @@ package com.jh270.toolbox
 
 import com.jh270.toolbox.ssh.TerminalEmulator
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -94,5 +95,17 @@ class TerminalEmulatorTest {
         assertTrue(text.contains("fghij"))
         assertTrue(text.contains("klmno"))
         assertTrue(text.contains("pqrst"))
+    }
+
+    @Test
+    fun bracketedPasteModeAndPlainText() {
+        val emu = TerminalEmulator(cols = 20, rows = 6)
+        assertFalse(emu.isBracketedPaste)
+        emu.feed("echo hi\r\n")
+        emu.feed("\u001B[?2004h")
+        assertTrue(emu.isBracketedPaste)
+        assertTrue(emu.plainText().contains("echo hi"))
+        emu.feed("\u001B[?2004l")
+        assertFalse(emu.isBracketedPaste)
     }
 }

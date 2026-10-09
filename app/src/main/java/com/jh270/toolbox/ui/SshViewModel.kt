@@ -783,6 +783,21 @@ class SshViewModel(
         }
     }
 
+    fun terminalPlainText(): String = terminalEmulator?.plainText().orEmpty()
+
+    fun pasteTerminalText(text: String) {
+        if (text.isEmpty() || uiState.value.terminalClosed) return
+        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        val payload = if (terminalEmulator?.isBracketedPaste == true) {
+            "\u001B[200~$normalized\u001B[201~"
+        } else {
+            normalized.replace('\n', '\r')
+        }
+        viewModelScope.launch {
+            repository.sendShellInput(payload)
+        }
+    }
+
     fun sendTerminalRaw(bytes: ByteArray) {
         if (bytes.isEmpty()) return
         viewModelScope.launch {

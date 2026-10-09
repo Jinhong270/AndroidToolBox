@@ -1,7 +1,11 @@
 package com.jh270.toolbox.ui
 
+import android.content.ClipData
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -53,9 +57,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
@@ -83,7 +92,7 @@ private val TerminalDim = Color(0xFF6E7681)
 private val TerminalAccent = Color(0xFF38BDF8)
 private val TerminalKeyBg = Color(0xFF1B2330)
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun SshTerminalScreen(
     viewModel: SshViewModel,
@@ -92,11 +101,37 @@ fun SshTerminalScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
     var fontSize by remember { mutableStateOf(13f) }
     var autoScroll by remember { mutableStateOf(true) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf(TextFieldValue("")) }
+
+    fun copyText(text: String) {
+        if (text.isEmpty()) return
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("terminal", text)))
+            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun pasteClipboard() {
+        scope.launch {
+            val clip = clipboard.getClipEntry()?.clipData
+            val text = if (clip != null && clip.itemCount > 0) {
+                clip.getItemAt(0).coerceToText(context)?.toString()
+            } else {
+                null
+            }
+            if (text.isNullOrEmpty()) {
+                Toast.makeText(context, "剪贴板是空的", Toast.LENGTH_SHORT).show()
+            } else {
+                viewModel.pasteTerminalText(text)
+            }
+        }
+    }
 
     fun sendBackspace() {
         viewModel.sendTerminalText("\u007F")
@@ -228,7 +263,18 @@ fun SshTerminalScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(uiState.terminalLines.size) { index ->
-                            TerminalLineText(uiState.terminalLines[index], fontSize.sp)
+                            val line = uiState.terminalLines[index]
+                            TerminalLineText(
+                                line = line,
+                                fontSize = fontSize.sp,
+                                onClick = {
+                                    focusRequester.requestFocus()
+                                    keyboardController?.show()
+                                },
+                                onLongClick = {
+                                    copyText(line.runs.joinToString("") { it.text }.trimEnd())
+                                }
+                            )
                         }
                     }
 
@@ -262,7 +308,13 @@ fun SshTerminalScreen(
             if (uiState.terminalClosed) {
                 TerminalClosedBar(onExit = { viewModel.closeTerminal() })
             } else {
-                TerminalKeyBar(viewModel, uiState, ::sendBackspace)
+                TerminalKeyBar(
+                    viewModel = viewModel,
+                    uiState = uiState,
+                    onBackspace = ::sendBackspace,
+                    onCopy = { copyText(viewModel.terminalPlainText()) },
+                    onPaste = ::pasteClipboard
+                )
             }
 
             BasicTextField(
@@ -339,6 +391,22 @@ fun SshTerminalScreen(
                                     viewModel.sendTerminalText("\u001B[B")
                                     true
                                 }
+                                Key.V -> {
+                                    if (event.isCtrlPressed) {
+                                        pasteClipboard()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.C -> {
+                                    if (event.isCtrlPressed && event.isShiftPressed) {
+                                        copyText(viewModel.terminalPlainText())
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
                                 else -> false
                             }
                         }
@@ -365,8 +433,14 @@ fun SshTerminalScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TerminalLineText(line: TerminalEmulator.TerminalLine, fontSize: TextUnit) {
+private fun TerminalLineText(
+    line: TerminalEmulator.TerminalLine,
+    fontSize: TextUnit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val annotated = remember(line) {
         buildAnnotatedString {
             for (run in line.runs) {
@@ -407,7 +481,9 @@ private fun TerminalLineText(line: TerminalEmulator.TerminalLine, fontSize: Text
         softWrap = false,
         maxLines = 1,
         overflow = TextOverflow.Clip,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     )
 }
 
@@ -440,7 +516,9 @@ private fun TerminalClosedBar(onExit: () -> Unit) {
 private fun TerminalKeyBar(
     viewModel: SshViewModel,
     uiState: SshUiState,
-    onBackspace: () -> Unit
+    onBackspace: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -453,6 +531,8 @@ private fun TerminalKeyBar(
     ) {
         TerminalKey("ESC") { viewModel.sendTerminalText("\u001B") }
         TerminalKey("TAB") { viewModel.sendTerminalText("\t") }
+        TerminalKey("COPY", onClick = onCopy)
+        TerminalKey("PASTE", onClick = onPaste)
         TerminalKey(if (uiState.isCtrlActive) "CTRL ON" else "CTRL", active = uiState.isCtrlActive) {
             viewModel.toggleCtrlState()
         }
