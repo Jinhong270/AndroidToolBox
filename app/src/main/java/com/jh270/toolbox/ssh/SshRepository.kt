@@ -25,10 +25,12 @@ import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -59,6 +61,8 @@ class SshRepository {
 
     private val gate = Mutex()
     private var lastConfig: SshConfig? = null
+    @Volatile
+    private var inflightExec: ChannelExec? = null
 
     @Volatile
     private var reconnectNotified = false
@@ -1167,22 +1171,20 @@ class SshRepository {
         }
     }
 
-    suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = remoteCall {
-        runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val parentDir = RemotePath.parent(file.path)
-            val fileName = file.name
-
-            if (format == "zip") {
-                compressZipSFTPFallback(channel, file, parentDir)
-                return@runCatching
-            }
-
+    suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = workerCall { channel ->
+        val parentDir = RemotePath.parent(file.path)
+        val fileName = file.name
+        if (format == "zip") {
+            compressZipSFTPFallback(channel, file, parentDir)
+        } else {
             val cmd = buildCompressCommand(parentDir, fileName, format)
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             try {
                 executeSshCommand(sess, cmd)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                coroutineContext.ensureActive()
                 if (isTransportFailure(e)) throw e
                 if (format == "tar" || format == "tar.gz") {
                     compressTarLocal(channel, file, parentDir, format == "tar.gz")
@@ -1191,6 +1193,42 @@ class SshRepository {
                 }
             }
         }
+    }
+
+    private suspend fun <T> workerCall(block: suspend (ChannelSftp) -> T): Result<T> = withContext(Dispatchers.IO) {
+        val worker = gate.withLock { openExtraSftp() }
+        val hook = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) {
+                try {
+                    inflightExec?.disconnect()
+                } catch (_: Exception) {}
+                try {
+                    worker.disconnect()
+                } catch (_: Exception) {}
+            }
+        }
+        try {
+            ensureActive()
+            Result.success(block(worker))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ensureActive()
+            Result.failure(e)
+        } finally {
+            hook?.dispose()
+            try {
+                worker.disconnect()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun openExtraSftp(): ChannelSftp {
+        val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+        if (!sess.isConnected) throw IllegalStateException("session is down")
+        val channel = sess.openChannel("sftp") as ChannelSftp
+        channel.connect(20000)
+        return channel
     }
 
     private fun compressZipSFTPFallback(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
@@ -1252,40 +1290,30 @@ class SshRepository {
         }
     }
 
-    suspend fun decompressFile(file: RemoteFile): Result<Unit> = remoteCall {
-        runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val parentDir = RemotePath.parent(file.path)
-            val fileName = file.name
-            val lowerName = fileName.lowercase()
-
-            when {
-                lowerName.endsWith(".zip") -> {
-                    decompressZipSFTPFallback(channel, file, parentDir)
-                    return@runCatching
-                }
-                lowerName.endsWith(".7z") -> {
-                    decompressSevenZLocal(channel, file, parentDir)
-                    return@runCatching
-                }
-                lowerName.endsWith(".gz") && !lowerName.endsWith(".tar.gz") -> {
-                    decompressGzipLocal(channel, file, parentDir)
-                    return@runCatching
-                }
-            }
-
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            try {
-                val cmd = buildDecompressCommand(parentDir, fileName, lowerName)
-                executeSshCommand(sess, cmd)
-            } catch (e: Exception) {
-                if (isTransportFailure(e)) throw e
-                when {
-                    lowerName.endsWith(".tar") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar.gz") -> {
-                        decompressTarLocal(channel, file, parentDir)
+    suspend fun decompressFile(file: RemoteFile): Result<Unit> = workerCall { channel ->
+        val parentDir = RemotePath.parent(file.path)
+        val fileName = file.name
+        val lowerName = fileName.lowercase()
+        when {
+            lowerName.endsWith(".zip") -> decompressZipSFTPFallback(channel, file, parentDir)
+            lowerName.endsWith(".7z") -> decompressSevenZLocal(channel, file, parentDir)
+            lowerName.endsWith(".gz") && !lowerName.endsWith(".tar.gz") -> decompressGzipLocal(channel, file, parentDir)
+            else -> {
+                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                try {
+                    executeSshCommand(sess, buildDecompressCommand(parentDir, fileName, lowerName))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    coroutineContext.ensureActive()
+                    if (isTransportFailure(e)) throw e
+                    when {
+                        lowerName.endsWith(".tar") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar.gz") -> {
+                            decompressTarLocal(channel, file, parentDir)
+                        }
+                        lowerName.endsWith(".rar") -> throw IllegalArgumentException("主机上没有可用的 unrar，无法解压 rar")
+                        else -> throw e
                     }
-                    lowerName.endsWith(".rar") -> throw IllegalArgumentException("主机上没有可用的 unrar，无法解压 rar")
-                    else -> throw e
                 }
             }
         }
@@ -1582,6 +1610,8 @@ class SshRepository {
 
     private fun executeSshCommand(sess: Session, command: String) {
         val channel = sess.openChannel("exec") as ChannelExec
+        inflightExec = channel
+        try {
         channel.setCommand(command)
         val errStream = ByteArrayOutputStream()
         channel.setErrStream(errStream)
@@ -1607,6 +1637,12 @@ class SshRepository {
             val outStr = stripAnsiCodes(decodeBytes(output.toByteArray(), remotePlatform == RemotePlatform.WINDOWS))
             val message = listOf(errStr, outStr).firstOrNull { it.isNotBlank() } ?: "Command exited with status $exitStatus"
             throw RuntimeException(message)
+        }
+        } finally {
+            if (inflightExec === channel) inflightExec = null
+            try {
+                channel.disconnect()
+            } catch (_: Exception) {}
         }
     }
 

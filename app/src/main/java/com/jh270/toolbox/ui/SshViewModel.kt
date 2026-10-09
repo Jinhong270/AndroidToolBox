@@ -1,12 +1,14 @@
 package com.jh270.toolbox.ui
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
+import com.jh270.toolbox.data.ProfileStore
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
@@ -14,7 +16,9 @@ import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
 import com.jh270.toolbox.ssh.TerminalEmulator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,7 +32,8 @@ enum class AppScreen {
 
 data class SshUiState(
     val currentScreen: AppScreen = AppScreen.HOME,
-    val config: SshConfig = SshConfig(name = "默认服务器", host = "192.168.1.100", port = 22, username = "root"),
+    val config: SshConfig = SshConfig(),
+    val backgroundTask: String? = null,
     val savedProfiles: List<SshProfile> = emptyList(),
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
@@ -82,9 +87,8 @@ data class SshUiState(
         }
 }
 
-class SshViewModel(
-    private val repository: SshRepository = SshRepository()
-) : ViewModel() {
+class SshViewModel(app: Application) : AndroidViewModel(app) {
+    private val repository = SshRepository()
 
     private val _uiState = MutableStateFlow(SshUiState())
     val uiState: StateFlow<SshUiState> = _uiState.asStateFlow()
@@ -98,17 +102,23 @@ class SshViewModel(
     private var sessionEpoch: Int = 0
     private var terminalCols: Int = 80
     private var terminalRows: Int = 24
+    private var backgroundJob: Job? = null
 
     init {
-        loadDefaultProfiles()
+        _uiState.update { it.copy(savedProfiles = ProfileStore.load(getApplication())) }
     }
 
-    private fun loadDefaultProfiles() {
-        val defaultProfile = SshProfile(
-            name = "本地测试服务器",
-            config = SshConfig(host = "192.168.1.100", port = 22, username = "root")
-        )
-        _uiState.update { it.copy(savedProfiles = listOf(defaultProfile)) }
+    private fun persistProfiles(profiles: List<SshProfile>) {
+        ProfileStore.save(getApplication(), profiles)
+    }
+
+    fun newConfig() {
+        _uiState.update {
+            it.copy(
+                config = SshConfig(),
+                connectionError = null
+            )
+        }
     }
 
     fun selectScreen(screen: AppScreen) {
@@ -118,12 +128,14 @@ class SshViewModel(
     fun returnToHome() {
         sessionEpoch++
         directoryJob?.cancel()
+        backgroundJob?.cancel()
         requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
             _uiState.update {
                 it.copy(
                     currentScreen = AppScreen.HOME,
+                    backgroundTask = null,
                     isConnected = false,
                     isConnecting = false,
                     fileList = emptyList(),
@@ -156,18 +168,21 @@ class SshViewModel(
         val config = uiState.value.config
         if (config.host.isBlank()) return
         val profileName = config.name.ifBlank { "${config.username}@${config.host}" }
-        val newProfile = SshProfile(name = profileName, config = config)
-        _uiState.update {
-            val updated = it.savedProfiles.filter { (_, _, profileConfig) -> (profileConfig.host != config.host) || (profileConfig.port != config.port) } + newProfile
-            it.copy(savedProfiles = updated, actionSuccessMessage = "配置已保存")
-        }
+        val existing = uiState.value.savedProfiles.find { it.config.host == config.host && it.config.port == config.port }
+        val newProfile = SshProfile(
+            id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+            name = profileName,
+            config = config.copy(name = profileName)
+        )
+        val updated = uiState.value.savedProfiles.filter { it.id != newProfile.id && (it.config.host != config.host || it.config.port != config.port) } + newProfile
+        persistProfiles(updated)
+        _uiState.update { it.copy(savedProfiles = updated, config = newProfile.config, actionSuccessMessage = "配置已保存") }
     }
 
     fun deleteProfile(profile: SshProfile) {
-        _uiState.update {
-            val updated = it.savedProfiles.filter { p -> p.id != profile.id }
-            it.copy(savedProfiles = updated)
-        }
+        val updated = uiState.value.savedProfiles.filter { it.id != profile.id }
+        persistProfiles(updated)
+        _uiState.update { it.copy(savedProfiles = updated) }
     }
 
     fun updateConfigName(name: String) {
@@ -247,11 +262,13 @@ class SshViewModel(
     fun disconnect() {
         sessionEpoch++
         directoryJob?.cancel()
+        backgroundJob?.cancel()
         requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
             _uiState.update {
                 it.copy(
+                    backgroundTask = null,
                     isConnected = false,
                     isConnecting = false,
                     fileList = emptyList(),
@@ -996,52 +1013,57 @@ class SshViewModel(
 
     fun executeCompress(format: String) {
         val target = uiState.value.actionTargetFile ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
-            val result = repository.compressFile(target, format)
-            result.onSuccess {
-                _uiState.update {
-                    it.copy(
-                        isOperatingFile = false,
-                        showCompressDialog = false,
-                        actionTargetFile = null,
-                        actionSuccessMessage = noted("压缩成功")
-                    )
-                }
-                refreshDirectory()
-            }.onFailure { error ->
-                failRemote(error, "压缩失败") {
-                    it.copy(
-                        isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "压缩失败"
-                    )
-                }
-            }
+        startBackgroundTask("正在压缩 ${target.name}", "压缩成功") {
+            repository.compressFile(target, format)
         }
     }
 
     fun executeDecompress() {
         val target = uiState.value.actionTargetFile ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isOperatingFile = true, actionErrorMessage = null) }
-            val result = repository.decompressFile(target)
-            result.onSuccess {
-                _uiState.update {
-                    it.copy(
-                        isOperatingFile = false,
-                        showActionMenu = false,
-                        actionTargetFile = null,
-                        actionSuccessMessage = noted("解压成功")
-                    )
+        startBackgroundTask("正在解压 ${target.name}", "解压成功") {
+            repository.decompressFile(target)
+        }
+    }
+
+    fun cancelBackgroundTask() {
+        backgroundJob?.cancel()
+        _uiState.update { it.copy(backgroundTask = null, showCompressDialog = false, showActionMenu = false) }
+    }
+
+    private fun startBackgroundTask(label: String, success: String, work: suspend () -> Result<Unit>) {
+        backgroundJob?.cancel()
+        _uiState.update {
+            it.copy(
+                backgroundTask = label,
+                showCompressDialog = false,
+                showActionMenu = false,
+                actionErrorMessage = null,
+                actionTargetFile = null
+            )
+        }
+        backgroundJob = viewModelScope.launch {
+            try {
+                val result = work()
+                if (!isActive) return@launch
+                result.onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            backgroundTask = null,
+                            actionSuccessMessage = noted(success)
+                        )
+                    }
+                    refreshDirectory()
+                }.onFailure { error ->
+                    if (error is CancellationException) return@onFailure
+                    failRemote(error, label) {
+                        it.copy(
+                            backgroundTask = null,
+                            actionErrorMessage = error.message ?: label
+                        )
+                    }
                 }
-                refreshDirectory()
-            }.onFailure { error ->
-                failRemote(error, "解压失败") {
-                    it.copy(
-                        isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "解压失败"
-                    )
-                }
+            } catch (_: CancellationException) {
+                _uiState.update { it.copy(backgroundTask = null) }
             }
         }
     }
@@ -1082,6 +1104,7 @@ class SshViewModel(
     private fun dropToConnection(message: String) {
         sessionEpoch++
         directoryJob?.cancel()
+        backgroundJob?.cancel()
         requestedDirectory = "/"
         terminalEmulator = null
         _uiState.update {
@@ -1110,6 +1133,7 @@ class SshViewModel(
                 archiveSubPath = "",
                 archiveEntries = emptyList(),
                 archiveError = null,
+                backgroundTask = null,
                 showActionMenu = false,
                 showRenameDialog = false,
                 showDeleteConfirmDialog = false,

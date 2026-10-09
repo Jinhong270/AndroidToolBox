@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -192,7 +193,10 @@ fun SshConnectionScreen(
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Router,
                             contentDescription = null,
@@ -203,8 +207,12 @@ fun SshConnectionScreen(
                         Text(
                             text = "连接信息",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
                         )
+                        TextButton(onClick = { viewModel.newConfig() }) {
+                            Text("新建")
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
