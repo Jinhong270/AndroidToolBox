@@ -298,9 +298,10 @@ fun RemoteFileManagerScreen(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(filteredFiles, key = { it.path }) { file ->
+                            items(filteredFiles, key = { "${it.name}|${it.path}" }) { file ->
                                 RemoteFileRow(
                                     file = file,
+                                    modifier = Modifier.animateItem(),
                                     onClick = { viewModel.previewFile(file) },
                                     onLongClick = {
                                         if (!uiState.isInArchiveMode) {
@@ -421,12 +422,13 @@ fun RemoteFileManagerScreen(
 fun RemoteFileRow(
     file: RemoteFile,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
+            .padding(vertical = 2.dp)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = if (file.name == "..") null else onLongClick

@@ -1,5 +1,9 @@
 package com.jh270.toolbox.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +32,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,6 +48,8 @@ import androidx.compose.ui.unit.dp
 fun ToolBoxHomeScreen(
     onSelectSshFileManager: () -> Unit,
 ) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -70,6 +81,10 @@ fun ToolBoxHomeScreen(
             )
         }
     ) { padding ->
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 10 }
+        ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -98,7 +113,7 @@ fun ToolBoxHomeScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "高效、安全的远程 SSH 管理与诊断工具，内置文件管理器、增强型终端以及硬件校验工具。",
+                            text = "连接远程主机，管理文件，打开终端。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -108,7 +123,7 @@ fun ToolBoxHomeScreen(
 
             item {
                 Text(
-                    text = "核心功能模块",
+                    text = "工具",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -117,9 +132,9 @@ fun ToolBoxHomeScreen(
 
             item {
                 FeatureCard(
-                    title = "SSH 文件管理器 & 终端",
-                    subtitle = "远程服务器连接、SFTP文件传输、实时终端控制",
-                    description = "支持密码/私钥认证、实时代码文本预览与编辑、文件解压缩、MD5/SHA256计算以及交互式Shell终端。",
+                    title = "SSH 文件管理器",
+                    subtitle = "连接、文件、终端",
+                    description = "密码或私钥登录，预览和编辑文本，压缩解压，校验文件。",
                     icon = Icons.Default.FolderShared,
                     onClick = onSelectSshFileManager
                 )
@@ -147,13 +162,14 @@ fun ToolBoxHomeScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "所有敏感数据与凭据仅直接同服务器通信，绝不经过第三方服务器存储。",
+                            text = "凭据只发给你连接的服务器。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+        }
         }
     }
 }
@@ -173,7 +189,7 @@ fun FeatureCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Row(

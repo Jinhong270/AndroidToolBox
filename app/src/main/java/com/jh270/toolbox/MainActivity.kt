@@ -4,6 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -60,31 +65,45 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    when {
-                        uiState.currentScreen == AppScreen.HOME -> {
-                            ToolBoxHomeScreen(
-                                onSelectSshFileManager = {
-                                    sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
-                                }
-                            )
-                        }
-                        uiState.showTerminalScreen -> {
-                            SshTerminalScreen(
-                                viewModel = sshViewModel,
-                                uiState = uiState
-                            )
-                        }
-                        uiState.isConnected -> {
-                            RemoteFileManagerScreen(
-                                viewModel = sshViewModel,
-                                uiState = uiState
-                            )
-                        }
-                        else -> {
-                            SshConnectionScreen(
-                                viewModel = sshViewModel,
-                                uiState = uiState
-                            )
+                    val destination = when {
+                        uiState.currentScreen == AppScreen.HOME -> "home"
+                        uiState.showTerminalScreen -> "terminal"
+                        uiState.isConnected -> "files"
+                        else -> "connect"
+                    }
+                    AnimatedContent(
+                        targetState = destination,
+                        transitionSpec = {
+                            fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+                        },
+                        label = "screen"
+                    ) { dest ->
+                        when (dest) {
+                            "home" -> {
+                                ToolBoxHomeScreen(
+                                    onSelectSshFileManager = {
+                                        sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
+                                    }
+                                )
+                            }
+                            "terminal" -> {
+                                SshTerminalScreen(
+                                    viewModel = sshViewModel,
+                                    uiState = uiState
+                                )
+                            }
+                            "files" -> {
+                                RemoteFileManagerScreen(
+                                    viewModel = sshViewModel,
+                                    uiState = uiState
+                                )
+                            }
+                            else -> {
+                                SshConnectionScreen(
+                                    viewModel = sshViewModel,
+                                    uiState = uiState
+                                )
+                            }
                         }
                     }
                 }
