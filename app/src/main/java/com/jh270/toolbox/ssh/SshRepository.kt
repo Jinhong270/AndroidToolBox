@@ -14,9 +14,15 @@ import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
+import com.jh270.toolbox.data.RemotePlatformDetector
 import com.jh270.toolbox.data.SshConfig
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -25,6 +31,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -44,6 +52,7 @@ class SshRepository {
     private var shellInputStream: InputStream? = null
     private var shellOutputStream: OutputStream? = null
     private var shellReadingThread: Thread? = null
+    private var shellPending: ByteArray = ByteArray(0)
 
     @Volatile
     private var shellClosingLocally = false
@@ -164,18 +173,16 @@ class SshRepository {
             newSession.setServerAliveCountMax(4)
             newSession.connect(20000)
 
-            remotePlatform = detectRemotePlatform(newSession)
-
             val channel = newSession.openChannel("sftp") as ChannelSftp
             openedChannel = channel
             channel.connect(20000)
+            val pwd = RemotePath.normalize(channel.pwd() ?: "/")
+            remotePlatform = detectRemotePlatform(newSession, pwd)
 
             session = newSession
             sftpChannel = channel
             lastConfig = config
             if (recovering) reconnectNotified = true
-
-            val pwd = RemotePath.normalize(channel.pwd() ?: "/")
             Result.success(pwd)
         } catch (e: Exception) {
             try {
@@ -308,6 +315,11 @@ class SshRepository {
             shellChannel = channel
             shellInputStream = inStream
             shellOutputStream = outStream
+            shellPending = ByteArray(0)
+            if (remotePlatform == RemotePlatform.WINDOWS) {
+                outStream.write("chcp 65001\r".toByteArray(Charsets.US_ASCII))
+                outStream.flush()
+            }
 
             shellReadingThread = Thread {
                 val buffer = ByteArray(4096)
@@ -320,7 +332,8 @@ class SshRepository {
                             break
                         }
                         if (read > 0) {
-                            onOutput(String(buffer, 0, read, Charsets.UTF_8))
+                            val text = decodeShell(buffer, read)
+                            if (text.isNotEmpty()) onOutput(text)
                         }
                     }
                 } catch (_: Exception) {}
@@ -384,6 +397,7 @@ class SshRepository {
             shellChannel?.disconnect()
         } catch (_: Exception) {}
         shellChannel = null
+        shellPending = ByteArray(0)
     }
 
     suspend fun listFiles(path: String): Result<List<RemoteFile>> = remoteCall {
@@ -528,7 +542,7 @@ class SshRepository {
                     )
                 }
                 FileType.TEXT, FileType.EXECUTABLE -> {
-                    val text = String(bytes, Charsets.UTF_8)
+                    val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
                     FilePreview(
                         name = file.name,
                         path = file.path,
@@ -551,7 +565,7 @@ class SshRepository {
                             fileType = fileType
                         )
                     } else {
-                        val text = String(bytes, Charsets.UTF_8)
+                        val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
                         FilePreview(
                             name = file.name,
                             path = file.path,
@@ -569,53 +583,13 @@ class SshRepository {
 
     suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = remoteCall {
         runCatching {
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val lowerName = file.name.lowercase()
-            val isZip = lowerName.endsWith(".zip")
-            val entriesList = mutableListOf<ArchiveEntryItem>()
-
-            val detailedOutput = try {
-                runExecCapture(sess, when {
-                    isZip -> "unzip -l ${shellArg(file.path)}"
-                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztvf ${shellArg(file.path)}"
-                    else -> "tar -tvf ${shellArg(file.path)}"
-                })
-            } catch (e: Exception) {
-                if (isTransportFailure(e)) throw e
-                ""
+            when {
+                lowerName.endsWith(".zip") -> readZipEntries(channel, file.path)
+                lowerName.endsWith(".7z") -> readSevenZEntries(channel, file.path)
+                else -> listTarEntries(channel, file)
             }
-
-            if (detailedOutput.isNotBlank()) {
-                if (isZip) {
-                    entriesList += parseUnzipListing(detailedOutput)
-                } else {
-                    entriesList += parseTarVerboseListing(detailedOutput)
-                }
-            }
-
-            if (entriesList.isEmpty()) {
-                val tarFlag = if (lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz")) "-ztf" else "-tf"
-                val pathOnly = try {
-                    runExecCapture(sess, "tar $tarFlag ${shellArg(file.path)}")
-                } catch (e: Exception) {
-                if (isTransportFailure(e)) throw e
-                ""
-            }
-                entriesList += parsePathOnlyListing(pathOnly)
-            }
-
-            if (entriesList.isEmpty()) {
-                val channel = sftpChannel
-                if (channel != null) {
-                    entriesList += when {
-                        isZip -> readZipEntries(channel, file.path)
-                        lowerName.endsWith(".7z") -> readSevenZEntries(channel, file.path)
-                        else -> emptyList()
-                    }
-                }
-            }
-
-            entriesList
         }
     }
 
@@ -627,7 +601,7 @@ class SshRepository {
 
             if (lowerName.endsWith(".zip")) {
                 val inputStream = channel.get(archiveFile.path)
-                val zipIn = ZipInputStream(inputStream)
+                val zipIn = openZip(inputStream)
                 var entry: ZipEntry?
                 var found = false
                 val buffer = ByteArray(4096)
@@ -651,26 +625,28 @@ class SshRepository {
             } else if (lowerName.endsWith(".7z")) {
                 outputStream.write(readSevenZEntryContent(channel, archiveFile.path, entryPath))
             } else {
-                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-                val escapedArchive = shellArg(archiveFile.path)
-                val escapedEntry = shellQuote(entryPath)
-                val cmd = when {
-                    lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -xzOf $escapedArchive $escapedEntry"
-                    lowerName.endsWith(".tar") -> "tar -xOf $escapedArchive $escapedEntry"
-                    else -> "tar -xOf $escapedArchive $escapedEntry"
+                try {
+                    if (remotePlatform == RemotePlatform.WINDOWS) {
+                        throw IllegalStateException("use local tar")
+                    }
+                    val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                    val cmd = tarReadCommand(archiveFile, entryPath)
+                    val execChan = sess.openChannel("exec") as ChannelExec
+                    execChan.setCommand(cmd)
+                    val inStream = execChan.inputStream
+                    execChan.connect(15000)
+                    val buffer = ByteArray(4096)
+                    var read: Int
+                    while (inStream.read(buffer).also { read = it } != -1) {
+                        outputStream.write(buffer, 0, read)
+                    }
+                    execChan.disconnect()
+                    if (outputStream.size() == 0) throw IllegalStateException("empty tar entry")
+                } catch (e: Exception) {
+                    if (isTransportFailure(e)) throw e
+                    outputStream.reset()
+                    outputStream.write(readTarEntryLocal(channel, archiveFile, entryPath))
                 }
-
-                val execChan = sess.openChannel("exec") as ChannelExec
-                execChan.setCommand(cmd)
-                val inStream = execChan.inputStream
-                execChan.connect(15000)
-
-                val buffer = ByteArray(4096)
-                var read: Int
-                while (inStream.read(buffer).also { read = it } != -1) {
-                    outputStream.write(buffer, 0, read)
-                }
-                execChan.disconnect()
             }
 
             val bytes = outputStream.toByteArray()
@@ -699,7 +675,7 @@ class SshRepository {
                         fileType = FileType.BINARY
                     )
                 } else {
-                    val text = String(bytes, Charsets.UTF_8)
+                    val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
                     FilePreview(
                         name = innerName,
                         path = "${archiveFile.name}/$entryPath",
@@ -742,7 +718,7 @@ class SshRepository {
             for (entry in entries) {
                 val name = entry.filename
                 if (name == "." || name == "..") continue
-                val childPath = if (path.endsWith("/")) "$path$name" else "$path/$name"
+                val childPath = RemotePath.join(path, name)
                 deleteRecursive(channel, childPath)
             }
             channel.rmdir(path)
@@ -809,13 +785,37 @@ class SshRepository {
 
     private fun shellArg(path: String): String = shellQuote(remoteShellPath(path))
 
-    private fun runExecCapture(sess: Session, command: String): String {
+    private fun runExecCapture(sess: Session, command: String, timeoutMs: Int = 120000): String {
         val channel = sess.openChannel("exec") as ChannelExec
         try {
             channel.setCommand(command)
-            val inStream = channel.inputStream
+            val err = ByteArrayOutputStream()
+            channel.setErrStream(err)
+            val input = channel.inputStream
             channel.connect(15000)
-            return inStream.bufferedReader(Charsets.UTF_8).readText()
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (true) {
+                while (input.available() > 0) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    out.write(buffer, 0, read)
+                }
+                if (channel.isClosed) {
+                    while (input.available() > 0) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                    }
+                    break
+                }
+                if (System.currentTimeMillis() > deadline) break
+                Thread.sleep(25)
+            }
+            val stdout = decodeBytes(out.toByteArray(), remotePlatform == RemotePlatform.WINDOWS)
+            if (stdout.isNotBlank()) return stdout
+            return decodeBytes(err.toByteArray(), remotePlatform == RemotePlatform.WINDOWS)
         } finally {
             try {
                 channel.disconnect()
@@ -823,16 +823,82 @@ class SshRepository {
         }
     }
 
-    private fun detectRemotePlatform(sess: Session): RemotePlatform {
-        val uname = runExecCapture(sess, "uname -s").trim().lowercase()
-        if (uname.contains("linux") || uname.contains("darwin") || uname.contains("bsd")) {
-            return RemotePlatform.UNIX
+    private fun detectRemotePlatform(sess: Session, homePath: String): RemotePlatform {
+        val banner = sess.serverVersion ?: ""
+        val quick = RemotePlatformDetector.fromSignals(banner, homePath, "")
+        if (quick == RemotePlatform.WINDOWS) return RemotePlatform.WINDOWS
+        val uname = runExecCapture(sess, "uname -s", 8000)
+        val fromUname = RemotePlatformDetector.fromSignals(banner, homePath, uname)
+        if (fromUname != RemotePlatform.UNKNOWN) return fromUname
+        val ver = runExecCapture(sess, "cmd.exe /d /c ver", 8000)
+        val fromVer = RemotePlatformDetector.fromSignals(banner, homePath, ver)
+        return if (fromVer == RemotePlatform.WINDOWS) RemotePlatform.WINDOWS else RemotePlatform.UNIX
+    }
+
+    private fun decodeBytes(bytes: ByteArray, windows: Boolean): String {
+        if (bytes.isEmpty()) return ""
+        val utf8 = try {
+            val decoder = Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+            decoder.decode(ByteBuffer.wrap(bytes)).toString()
+        } catch (_: Exception) {
+            null
         }
-        if (uname.isNotBlank()) {
-            return RemotePlatform.WINDOWS
+        if (utf8 != null && !windows) return utf8
+        if (utf8 != null && windows && !utf8.contains('\uFFFD')) return utf8
+        return try {
+            String(bytes, charset("GBK"))
+        } catch (_: Exception) {
+            utf8 ?: String(bytes, Charsets.ISO_8859_1)
         }
-        val ver = runExecCapture(sess, "cmd /c ver").trim().lowercase()
-        return if (ver.contains("windows")) RemotePlatform.WINDOWS else RemotePlatform.UNIX
+    }
+
+    private fun decodeShell(buffer: ByteArray, length: Int): String {
+        val merged = ByteArray(shellPending.size + length)
+        System.arraycopy(shellPending, 0, merged, 0, shellPending.size)
+        System.arraycopy(buffer, 0, merged, shellPending.size, length)
+        val tail = incompleteUtf8Tail(merged)
+        val usable = merged.size - tail
+        shellPending = if (tail == 0) ByteArray(0) else merged.copyOfRange(usable, merged.size)
+        if (usable <= 0) return ""
+        val slice = if (usable == merged.size) merged else merged.copyOf(usable)
+        return decodeBytes(slice, remotePlatform == RemotePlatform.WINDOWS)
+    }
+
+    private fun incompleteUtf8Tail(bytes: ByteArray): Int {
+        var index = bytes.size - 1
+        var continuation = 0
+        while (index >= 0 && continuation < 3 && (bytes[index].toInt() and 0xC0) == 0x80) {
+            index--
+            continuation++
+        }
+        if (index < 0) return 0
+        val lead = bytes[index].toInt() and 0xFF
+        val need = when {
+            lead and 0x80 == 0 -> 0
+            lead and 0xE0 == 0xC0 -> 2
+            lead and 0xF0 == 0xE0 -> 3
+            lead and 0xF8 == 0xF0 -> 4
+            else -> 0
+        }
+        if (need == 0) return 0
+        val have = bytes.size - index
+        return if (have < need) have else 0
+    }
+
+    private fun psQuote(value: String): String = "'" + value.replace("'", "''") + "'"
+
+    private fun ps(script: String): String {
+        val body = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding \$false; $script"
+        return "powershell.exe -NoProfile -NonInteractive -Command ${psQuote(body)}"
+    }
+
+    private fun windowsPath(path: String): String = RemotePath.toWindowsPath(path)
+
+    private fun openZip(input: InputStream): ZipInputStream {
+        val charset = if (remotePlatform == RemotePlatform.WINDOWS) charset("GBK") else Charsets.UTF_8
+        return ZipInputStream(input, charset)
     }
 
     private fun parseUnzipListing(output: String): List<ArchiveEntryItem> {
@@ -928,7 +994,7 @@ class SshRepository {
     private fun readZipEntries(channel: ChannelSftp, path: String): List<ArchiveEntryItem> {
         val entries = mutableListOf<ArchiveEntryItem>()
         val inputStream = channel.get(path)
-        val zipIn = ZipInputStream(inputStream)
+        val zipIn = openZip(inputStream)
         var entry: ZipEntry?
         while (zipIn.nextEntry.also { entry = it } != null) {
             val e = entry!!
@@ -1024,11 +1090,11 @@ class SshRepository {
 
     private fun buildCompressCommand(parentDir: String, fileName: String, format: String): String {
         if (remotePlatform == RemotePlatform.WINDOWS) {
-            val winDir = RemotePath.toWindowsPath(parentDir)
+            val winDir = windowsPath(parentDir).trimEnd('\\')
             return when (format) {
-                "tar.gz" -> "tar -czf \"$winDir/$fileName.tar.gz\" -C \"$winDir\" \"$fileName\""
-                "tar" -> "tar -cf \"$winDir/$fileName.tar\" -C \"$winDir\" \"$fileName\""
-                "zip" -> throw IllegalArgumentException("压缩 zip 在 Windows 上应使用本地回退")
+                "tar.gz" -> ps("tar -czf ${psQuote("$winDir\\$fileName.tar.gz")} -C ${psQuote(winDir)} ${psQuote(fileName)}")
+                "tar" -> ps("tar -cf ${psQuote("$winDir\\$fileName.tar")} -C ${psQuote(winDir)} ${psQuote(fileName)}")
+                "zip" -> throw IllegalArgumentException("压缩 zip 在 Windows 上使用本地打包")
                 else -> throw IllegalArgumentException("不支持的压缩格式: $format")
             }
         }
@@ -1036,7 +1102,7 @@ class SshRepository {
         val escapedDir = shellQuote(parentDir)
         val escapedFile = shellQuote(fileName)
         return when (format) {
-            "zip" -> "cd $escapedDir && (zip -r ${shellQuote("$fileName.zip")} $escapedFile || python3 -c \"import shutil; shutil.make_archive('$fileName', 'zip', '.', '$fileName')\")"
+            "zip" -> "cd $escapedDir && zip -r ${shellQuote("$fileName.zip")} $escapedFile"
             "tar.gz" -> "cd $escapedDir && tar -czf ${shellQuote("$fileName.tar.gz")} $escapedFile"
             "tar" -> "cd $escapedDir && tar -cf ${shellQuote("$fileName.tar")} $escapedFile"
             else -> throw IllegalArgumentException("不支持的压缩格式: $format")
@@ -1045,21 +1111,20 @@ class SshRepository {
 
     private fun buildDecompressCommand(parentDir: String, fileName: String, lowerName: String): String {
         if (remotePlatform == RemotePlatform.WINDOWS) {
-            val winDir = RemotePath.toWindowsPath(parentDir)
+            val winDir = windowsPath(parentDir).trimEnd('\\')
+            val archive = psQuote("$winDir\\$fileName")
+            val folder = psQuote(winDir)
             return when {
-                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -xzf \"$winDir/$fileName\" -C \"$winDir\""
-                lowerName.endsWith(".tar") -> "tar -xf \"$winDir/$fileName\" -C \"$winDir\""
-                lowerName.endsWith(".gz") -> throw IllegalArgumentException("Windows 服务器缺少 gzip，无法解压 .gz，请改用 .zip 或 .tar.gz")
-                lowerName.endsWith(".rar") -> throw IllegalArgumentException("Windows 服务器缺少 unrar，请安装 WinRAR 命令行工具")
-                lowerName.endsWith(".7z") -> throw IllegalArgumentException("Windows 服务器缺少 7-Zip，请安装 7-Zip 并加入 PATH")
-                else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
+                lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> ps("tar -xzf $archive -C $folder")
+                lowerName.endsWith(".tar") -> ps("tar -xf $archive -C $folder")
+                else -> throw IllegalArgumentException("该格式在 Windows 上改为本地解压")
             }
         }
 
         val escapedDir = shellQuote(parentDir)
         val escapedFile = shellQuote(fileName)
         return when {
-            lowerName.endsWith(".zip") -> "cd $escapedDir && (unzip -o $escapedFile || python3 -c \"import zipfile; zipfile.ZipFile('$fileName').extractall('.')\")"
+            lowerName.endsWith(".zip") -> "cd $escapedDir && unzip -o $escapedFile"
             lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "cd $escapedDir && tar -xzf $escapedFile"
             lowerName.endsWith(".tar") -> "cd $escapedDir && tar -xf $escapedFile"
             lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
@@ -1069,16 +1134,36 @@ class SshRepository {
         }
     }
 
+    private fun tarListCommand(file: RemoteFile): String {
+        val lower = file.name.lowercase()
+        val flags = if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) "-tzvf" else "-tvf"
+        return if (remotePlatform == RemotePlatform.WINDOWS) {
+            ps("tar $flags ${psQuote(windowsPath(file.path))}")
+        } else {
+            "tar $flags ${shellQuote(file.path)}"
+        }
+    }
+
+    private fun tarReadCommand(file: RemoteFile, entryPath: String): String {
+        val lower = file.name.lowercase()
+        val flags = if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) "-xzOf" else "-xOf"
+        return if (remotePlatform == RemotePlatform.WINDOWS) {
+            ps("tar $flags ${psQuote(windowsPath(file.path))} ${psQuote(entryPath)}")
+        } else {
+            "tar $flags ${shellQuote(file.path)} ${shellQuote(entryPath)}"
+        }
+    }
+
     fun buildExecuteInTerminalCommand(file: RemoteFile): String {
         return if (remotePlatform == RemotePlatform.WINDOWS) {
-            val winPath = RemotePath.toWindowsPath(file.path)
+            val winPath = windowsPath(file.path).replace("\"", "")
             if (file.name.lowercase().endsWith(".ps1")) {
-                "powershell -ExecutionPolicy Bypass -File \"$winPath\""
+                "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$winPath\""
             } else {
-                "\"$winPath\""
+                "cmd.exe /c \"$winPath\""
             }
         } else {
-            "chmod +x \"${file.path}\" && \"${file.path}\""
+            "chmod +x ${shellQuote(file.path)} && ${shellQuote(file.path)}"
         }
     }
 
@@ -1088,7 +1173,7 @@ class SshRepository {
             val parentDir = RemotePath.parent(file.path)
             val fileName = file.name
 
-            if (format == "zip" && remotePlatform == RemotePlatform.WINDOWS) {
+            if (format == "zip") {
                 compressZipSFTPFallback(channel, file, parentDir)
                 return@runCatching
             }
@@ -1098,8 +1183,9 @@ class SshRepository {
             try {
                 executeSshCommand(sess, cmd)
             } catch (e: Exception) {
-                if (format == "zip") {
-                    compressZipSFTPFallback(channel, file, parentDir)
+                if (isTransportFailure(e)) throw e
+                if (format == "tar" || format == "tar.gz") {
+                    compressTarLocal(channel, file, parentDir, format == "tar.gz")
                 } else {
                     throw e
                 }
@@ -1111,7 +1197,7 @@ class SshRepository {
         val tempZipFile = File.createTempFile("toolbox_compress_", ".zip")
         try {
             val fos = FileOutputStream(tempZipFile)
-            val zipOut = ZipOutputStream(fos)
+            val zipOut = ZipOutputStream(fos, Charsets.UTF_8)
 
             if (file.isDirectory) {
                 compressFolderRecursiveSFTP(channel, file.path, file.name, zipOut)
@@ -1130,7 +1216,7 @@ class SshRepository {
             zipOut.close()
             fos.close()
 
-            val targetZipPath = if (parentDir.endsWith("/")) "$parentDir${file.name}.zip" else "$parentDir/${file.name}.zip"
+            val targetZipPath = RemotePath.join(parentDir, "${file.name}.zip")
             val fis = FileInputStream(tempZipFile)
             channel.put(fis, targetZipPath, ChannelSftp.OVERWRITE)
             fis.close()
@@ -1145,7 +1231,7 @@ class SshRepository {
         for (entry in entries) {
             val name = entry.filename
             if (name == "." || name == "..") continue
-            val childFullPath = if (currentPath.endsWith("/")) "$currentPath$name" else "$currentPath/$name"
+            val childFullPath = RemotePath.join(currentPath, name)
             val childZipPath = "$zipPathPrefix/$name"
 
             if (entry.attrs.isDir) {
@@ -1173,20 +1259,33 @@ class SshRepository {
             val fileName = file.name
             val lowerName = fileName.lowercase()
 
-            if (lowerName.endsWith(".zip") && remotePlatform == RemotePlatform.WINDOWS) {
-                decompressZipSFTPFallback(channel, file, parentDir)
-                return@runCatching
+            when {
+                lowerName.endsWith(".zip") -> {
+                    decompressZipSFTPFallback(channel, file, parentDir)
+                    return@runCatching
+                }
+                lowerName.endsWith(".7z") -> {
+                    decompressSevenZLocal(channel, file, parentDir)
+                    return@runCatching
+                }
+                lowerName.endsWith(".gz") && !lowerName.endsWith(".tar.gz") -> {
+                    decompressGzipLocal(channel, file, parentDir)
+                    return@runCatching
+                }
             }
 
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val cmd = buildDecompressCommand(parentDir, fileName, lowerName)
             try {
+                val cmd = buildDecompressCommand(parentDir, fileName, lowerName)
                 executeSshCommand(sess, cmd)
             } catch (e: Exception) {
-                if (lowerName.endsWith(".zip")) {
-                    decompressZipSFTPFallback(channel, file, parentDir)
-                } else {
-                    throw e
+                if (isTransportFailure(e)) throw e
+                when {
+                    lowerName.endsWith(".tar") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar.gz") -> {
+                        decompressTarLocal(channel, file, parentDir)
+                    }
+                    lowerName.endsWith(".rar") -> throw IllegalArgumentException("主机上没有可用的 unrar，无法解压 rar")
+                    else -> throw e
                 }
             }
         }
@@ -1206,25 +1305,25 @@ class SshRepository {
             fos.close()
 
             val fis = FileInputStream(tempZipFile)
-            val zipIn = ZipInputStream(fis)
+            val zipIn = openZip(fis)
             var entry: ZipEntry?
             while (zipIn.nextEntry.also { entry = it } != null) {
                 val e = entry!!
-                val entryName = e.name
-                val targetPath = if (parentDir.endsWith("/")) "$parentDir$entryName" else "$parentDir/$entryName"
+                val relative = RemotePath.safeRelative(e.name)
+                if (relative == null) {
+                    zipIn.closeEntry()
+                    continue
+                }
+                val targetPath = RemotePath.resolveChild(parentDir, relative)
+                if (targetPath.isEmpty()) {
+                    zipIn.closeEntry()
+                    continue
+                }
 
                 if (e.isDirectory) {
-                    try {
-                        channel.mkdir(targetPath)
-                    } catch (_: Exception) {}
+                    ensureRemoteDir(channel, targetPath)
                 } else {
-                    val parentFolder = targetPath.substringBeforeLast('/', "")
-                    if (parentFolder.isNotEmpty()) {
-                        try {
-                            channel.mkdir(parentFolder)
-                        } catch (_: Exception) {}
-                    }
-
+                    ensureRemoteDir(channel, RemotePath.parent(targetPath))
                     val outStream = channel.put(targetPath, ChannelSftp.OVERWRITE)
                     while (zipIn.read(buffer).also { read = it } != -1) {
                         outStream.write(buffer, 0, read)
@@ -1238,6 +1337,247 @@ class SshRepository {
         } finally {
             tempZipFile.delete()
         }
+    }
+
+    private fun readTarEntryLocal(channel: ChannelSftp, file: RemoteFile, entryPath: String): ByteArray {
+        val tempFile = downloadToTemp(channel, file.path)
+        try {
+            openTar(tempFile, file.name).use { tar ->
+                var entry = tar.nextEntry
+                while (entry != null) {
+                    val name = entry.name
+                    if (name == entryPath || name.trimEnd('/') == entryPath.trimEnd('/')) {
+                        val out = ByteArrayOutputStream()
+                        val buffer = ByteArray(16384)
+                        var read = tar.read(buffer)
+                        while (read != -1) {
+                            out.write(buffer, 0, read)
+                            read = tar.read(buffer)
+                        }
+                        return out.toByteArray()
+                    }
+                    entry = tar.nextEntry
+                }
+            }
+            throw IllegalStateException("压缩包中未找到文件: $entryPath")
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private fun listTarEntries(channel: ChannelSftp, file: RemoteFile): List<ArchiveEntryItem> {
+        val sess = session
+        if (sess != null) {
+            try {
+                val output = runExecCapture(sess, tarListCommand(file))
+                val parsed = parseTarVerboseListing(output).ifEmpty { parsePathOnlyListing(output) }
+                if (parsed.isNotEmpty()) return parsed
+            } catch (e: Exception) {
+                if (isTransportFailure(e)) throw e
+            }
+        }
+        return listTarLocal(channel, file)
+    }
+
+    private fun listTarLocal(channel: ChannelSftp, file: RemoteFile): List<ArchiveEntryItem> {
+        val tempFile = downloadToTemp(channel, file.path)
+        try {
+            val entries = mutableListOf<ArchiveEntryItem>()
+            openTar(tempFile, file.name).use { tar ->
+                var entry = tar.nextEntry
+                while (entry != null) {
+                    val rawName = entry.name.trimEnd('/')
+                    if (rawName.isNotBlank() && RemotePath.safeRelative(entry.name) != null) {
+                        entries.add(
+                            ArchiveEntryItem(
+                                path = entry.name,
+                                name = rawName.substringAfterLast('/'),
+                                isDirectory = entry.isDirectory,
+                                size = if (entry.isDirectory) 0L else entry.size
+                            )
+                        )
+                    }
+                    entry = tar.nextEntry
+                }
+            }
+            return entries
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private fun openTar(file: File, archiveName: String): TarArchiveInputStream {
+        val raw = FileInputStream(file)
+        val lower = archiveName.lowercase()
+        val input = if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) GzipCompressorInputStream(raw) else raw
+        return TarArchiveInputStream(input, "UTF-8")
+    }
+
+    private fun compressTarLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String, gzip: Boolean) {
+        val ext = if (gzip) ".tar.gz" else ".tar"
+        val tempRoot = File.createTempFile("toolbox_tar_src_", "")
+        tempRoot.delete()
+        tempRoot.mkdirs()
+        val tempArchive = File.createTempFile("toolbox_tar_", if (gzip) ".tgz" else ".tar")
+        try {
+            downloadRecursive(channel, file.path, File(tempRoot, file.name), file.isDirectory)
+            writeTar(tempRoot, tempArchive, gzip)
+            FileInputStream(tempArchive).use { input ->
+                channel.put(input, RemotePath.join(parentDir, file.name + ext), ChannelSftp.OVERWRITE)
+            }
+        } finally {
+            tempArchive.delete()
+            tempRoot.deleteRecursively()
+        }
+    }
+
+    private fun writeTar(root: File, dest: File, gzip: Boolean) {
+        val raw = FileOutputStream(dest)
+        val compressed = if (gzip) GzipCompressorOutputStream(raw) else raw
+        TarArchiveOutputStream(compressed).use { tar ->
+            tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+            tar.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+            val base = root.absoluteFile
+            root.walkTopDown().forEach { child ->
+                if (child == root) return@forEach
+                val rel = base.toPath().relativize(child.toPath()).toString().replace('\\', '/')
+                val entryName = if (child.isDirectory) rel.trimEnd('/') + "/" else rel
+                val entry = TarArchiveEntry(child, entryName)
+                tar.putArchiveEntry(entry)
+                if (child.isFile) child.inputStream().use { it.copyTo(tar) }
+                tar.closeArchiveEntry()
+            }
+            tar.finish()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun downloadRecursive(channel: ChannelSftp, remote: String, local: File, isDir: Boolean) {
+        if (isDir) {
+            local.mkdirs()
+            val entries = channel.ls(remote) as Vector<ChannelSftp.LsEntry>
+            for (entry in entries) {
+                val name = entry.filename
+                if (name == "." || name == "..") continue
+                downloadRecursive(channel, RemotePath.join(remote, name), File(local, name), entry.attrs.isDir)
+            }
+        } else {
+            local.parentFile?.mkdirs()
+            FileOutputStream(local).use { out ->
+                channel.get(remote).use { input -> input.copyTo(out) }
+            }
+        }
+    }
+
+    private fun decompressTarLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+        val tempFile = downloadToTemp(channel, file.path)
+        try {
+            openTar(tempFile, file.name).use { tar ->
+                var entry = tar.nextEntry
+                while (entry != null) {
+                    val relative = RemotePath.safeRelative(entry.name)
+                    if (relative != null) {
+                        val target = RemotePath.resolveChild(parentDir, relative)
+                        if (target.isNotEmpty()) {
+                            if (entry.isDirectory) {
+                                ensureRemoteDir(channel, target)
+                            } else {
+                                ensureRemoteDir(channel, RemotePath.parent(target))
+                                uploadLimited(channel, tar, target)
+                            }
+                        }
+                    }
+                    entry = tar.nextEntry
+                }
+            }
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private fun decompressGzipLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+        val tempFile = downloadToTemp(channel, file.path)
+        val tempOut = File.createTempFile("toolbox_gunzip_", ".bin")
+        try {
+            GzipCompressorInputStream(FileInputStream(tempFile)).use { input ->
+                FileOutputStream(tempOut).use { output -> input.copyTo(output) }
+            }
+            val outName = file.name.substringBeforeLast('.').ifBlank { "${file.name}.out" }
+            FileInputStream(tempOut).use { input ->
+                channel.put(input, RemotePath.join(parentDir, outName), ChannelSftp.OVERWRITE)
+            }
+        } finally {
+            tempFile.delete()
+            tempOut.delete()
+        }
+    }
+
+    private fun decompressSevenZLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+        val tempFile = downloadToTemp(channel, file.path)
+        try {
+            SevenZFile.Builder().setFile(tempFile).get().use { sevenZ ->
+                var entry = sevenZ.nextEntry
+                while (entry != null) {
+                    val relative = RemotePath.safeRelative(entry.name)
+                    if (relative != null) {
+                        val target = RemotePath.resolveChild(parentDir, relative)
+                        if (target.isNotEmpty()) {
+                            if (entry.isDirectory) {
+                                ensureRemoteDir(channel, target)
+                            } else {
+                                ensureRemoteDir(channel, RemotePath.parent(target))
+                                val part = File.createTempFile("toolbox_7z_", ".bin")
+                                try {
+                                    FileOutputStream(part).use { out ->
+                                        val buffer = ByteArray(16384)
+                                        var read = sevenZ.read(buffer)
+                                        while (read != -1) {
+                                            out.write(buffer, 0, read)
+                                            read = sevenZ.read(buffer)
+                                        }
+                                    }
+                                    FileInputStream(part).use { input ->
+                                        channel.put(input, target, ChannelSftp.OVERWRITE)
+                                    }
+                                } finally {
+                                    part.delete()
+                                }
+                            }
+                        }
+                    }
+                    entry = sevenZ.nextEntry
+                }
+            }
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private fun uploadLimited(channel: ChannelSftp, input: InputStream, target: String) {
+        val part = File.createTempFile("toolbox_entry_", ".bin")
+        try {
+            FileOutputStream(part).use { out ->
+                val buffer = ByteArray(16384)
+                var read = input.read(buffer)
+                while (read != -1) {
+                    out.write(buffer, 0, read)
+                    read = input.read(buffer)
+                }
+            }
+            FileInputStream(part).use { channel.put(it, target, ChannelSftp.OVERWRITE) }
+        } finally {
+            part.delete()
+        }
+    }
+
+    private fun ensureRemoteDir(channel: ChannelSftp, dir: String) {
+        val normalized = RemotePath.normalize(dir)
+        if (normalized.isBlank() || RemotePath.isRoot(normalized)) return
+        val parent = RemotePath.parent(normalized)
+        if (parent != normalized) ensureRemoteDir(channel, parent)
+        try {
+            channel.mkdir(normalized)
+        } catch (_: Exception) {}
     }
 
     private fun executeSshCommand(sess: Session, command: String) {
@@ -1257,9 +1597,16 @@ class SshRepository {
         channel.disconnect()
 
         val exitStatus = channel.exitStatus
+        if (exitStatus == -1) {
+            val errStr = stripAnsiCodes(decodeBytes(errStream.toByteArray(), remotePlatform == RemotePlatform.WINDOWS))
+            if (errStr.isNotBlank()) throw RuntimeException(errStr)
+            return
+        }
         if (exitStatus != 0) {
-            val errStr = stripAnsiCodes(errStream.toString(Charsets.UTF_8.name()))
-            throw RuntimeException(if (errStr.isNotBlank()) errStr else "Command exited with status $exitStatus")
+            val errStr = stripAnsiCodes(decodeBytes(errStream.toByteArray(), remotePlatform == RemotePlatform.WINDOWS))
+            val outStr = stripAnsiCodes(decodeBytes(output.toByteArray(), remotePlatform == RemotePlatform.WINDOWS))
+            val message = listOf(errStr, outStr).firstOrNull { it.isNotBlank() } ?: "Command exited with status $exitStatus"
+            throw RuntimeException(message)
         }
     }
 
