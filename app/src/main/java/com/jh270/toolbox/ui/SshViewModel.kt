@@ -13,6 +13,7 @@ import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
 import com.jh270.toolbox.ssh.TerminalEmulator
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +90,13 @@ class SshViewModel(
     @Volatile
     private var terminalEmulator: TerminalEmulator? = null
 
+    private var requestedDirectory: String = "/"
+    private var directoryJob: Job? = null
+    private var resumeJob: Job? = null
+    private var sessionEpoch: Int = 0
+    private var terminalCols: Int = 80
+    private var terminalRows: Int = 24
+
     init {
         loadDefaultProfiles()
     }
@@ -106,6 +114,9 @@ class SshViewModel(
     }
 
     fun returnToHome() {
+        sessionEpoch++
+        directoryJob?.cancel()
+        requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
             _uiState.update {
@@ -197,10 +208,13 @@ class SshViewModel(
             return
         }
 
+        val epoch = ++sessionEpoch
         viewModelScope.launch {
             _uiState.update { it.copy(isConnecting = true, connectionError = null) }
             val result = repository.connect(config)
+            if (epoch != sessionEpoch) return@launch
             result.onSuccess { pwd ->
+                requestedDirectory = pwd
                 _uiState.update {
                     it.copy(
                         isConnecting = false,
@@ -228,6 +242,9 @@ class SshViewModel(
     }
 
     fun disconnect() {
+        sessionEpoch++
+        directoryJob?.cancel()
+        requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
             _uiState.update {
@@ -253,34 +270,87 @@ class SshViewModel(
 
     fun loadDirectory(path: String) {
         val normalized = RemotePath.normalize(path)
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isLoadingFiles = true,
-                    fileFetchError = null,
-                    currentPath = normalized,
-                    isInArchiveMode = false,
-                    archiveFile = null,
-                    archiveSubPath = "",
-                    archiveEntries = emptyList()
-                )
+        val epoch = sessionEpoch
+        requestedDirectory = normalized
+        _uiState.update {
+            it.copy(
+                isLoadingFiles = true,
+                fileFetchError = null,
+                currentPath = normalized,
+                isInArchiveMode = false,
+                archiveFile = null,
+                archiveSubPath = "",
+                archiveEntries = emptyList()
+            )
+        }
+        if (directoryJob?.isActive == true) return
+        directoryJob = viewModelScope.launch {
+            while (epoch == sessionEpoch) {
+                val target = requestedDirectory
+                val result = repository.listFiles(target)
+                if (epoch != sessionEpoch || requestedDirectory != target) continue
+                result.onSuccess { files ->
+                    if (epoch != sessionEpoch || requestedDirectory != target) return@onSuccess
+                    val restored = repository.consumeReconnectNotice()
+                    _uiState.update {
+                        it.copy(
+                            isLoadingFiles = false,
+                            isConnected = true,
+                            fileList = files,
+                            fileFetchError = null,
+                            actionSuccessMessage = if (restored) "连接已恢复" else it.actionSuccessMessage
+                        )
+                    }
+                }.onFailure { error ->
+                    if (epoch != sessionEpoch || requestedDirectory != target) return@onFailure
+                    if (!repository.isConnected()) {
+                        dropToConnection(error.message ?: "连接已断开，请重新连接")
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isLoadingFiles = false,
+                                fileFetchError = error.message ?: "获取目录文件列表失败"
+                            )
+                        }
+                    }
+                }
+                if (epoch != sessionEpoch || requestedDirectory == target) break
             }
-            val result = repository.listFiles(normalized)
-            result.onSuccess { files ->
+        }
+    }
+
+    fun onHostResume() {
+        val state = _uiState.value
+        if (!state.isConnected || state.isConnecting) return
+        if (resumeJob?.isActive == true) return
+        val epoch = sessionEpoch
+        resumeJob = viewModelScope.launch {
+            val alive = repository.probeAlive()
+            if (epoch != sessionEpoch || !_uiState.value.isConnected || alive) return@launch
+            _uiState.update { it.copy(isLoadingFiles = true, fileFetchError = null) }
+            val result = repository.reconnect()
+            if (epoch != sessionEpoch) {
+                repository.disconnect()
+                return@launch
+            }
+            result.onSuccess { pwd ->
+                repository.consumeReconnectNotice()
                 _uiState.update {
                     it.copy(
+                        isConnected = true,
                         isLoadingFiles = false,
-                        fileList = files,
-                        fileFetchError = null
+                        actionSuccessMessage = "连接已恢复"
                     )
+                }
+                if (_uiState.value.showTerminalScreen) {
+                    restartTerminal()
+                } else if (_uiState.value.isInArchiveMode && _uiState.value.archiveFile != null) {
+                    enterArchiveMode(_uiState.value.archiveFile!!)
+                } else {
+                    loadDirectory(_uiState.value.currentPath.ifBlank { pwd })
                 }
             }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        isLoadingFiles = false,
-                        fileFetchError = error.message ?: "获取目录文件列表失败"
-                    )
-                }
+                dropToConnection(error.message ?: "连接已断开，请重新连接")
             }
         }
     }
@@ -297,7 +367,7 @@ class SshViewModel(
             return
         }
 
-        val current = state.currentPath
+        val current = requestedDirectory.ifBlank { state.currentPath }
         if (RemotePath.isRoot(current) || current.isBlank()) return
 
         loadDirectory(RemotePath.parent(current))
@@ -359,12 +429,12 @@ class SshViewModel(
                     it.copy(
                         isOperatingFile = false,
                         showCreateFolderDialog = false,
-                        actionSuccessMessage = "文件夹创建成功"
+                        actionSuccessMessage = noted("文件夹创建成功")
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "文件夹创建失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "文件夹创建失败"
@@ -385,12 +455,12 @@ class SshViewModel(
                     it.copy(
                         isOperatingFile = false,
                         showCreateFileDialog = false,
-                        actionSuccessMessage = "文件创建成功"
+                        actionSuccessMessage = noted("文件创建成功")
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "文件创建失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "文件创建失败"
@@ -418,7 +488,7 @@ class SshViewModel(
         }
 
         if (file.isDirectory) {
-            loadDirectory(file.path)
+            if (file.name == "..") navigateUp() else loadDirectory(file.path)
             return
         }
 
@@ -439,7 +509,7 @@ class SshViewModel(
                     )
                 }
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "预览文件失败") {
                     it.copy(
                         isPreviewLoading = false,
                         previewError = error.message ?: "预览文件失败"
@@ -471,7 +541,7 @@ class SshViewModel(
                     )
                 }
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "无法解析压缩包结构") {
                     it.copy(
                         isLoadingArchiveEntries = false,
                         archiveError = error.message ?: "无法解析压缩包结构"
@@ -508,7 +578,7 @@ class SshViewModel(
                     )
                 }
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "预览压缩包内文件失败") {
                     it.copy(
                         isPreviewLoading = false,
                         previewError = error.message ?: "预览压缩包内文件失败"
@@ -609,11 +679,11 @@ class SshViewModel(
                     it.copy(
                         isSavingFile = false,
                         selectedFilePreview = updatedPreview,
-                        saveSuccessMessage = "文件保存成功"
+                        saveSuccessMessage = noted("文件保存成功")
                     )
                 }
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "文件保存失败") {
                     it.copy(
                         isSavingFile = false,
                         saveErrorMessage = error.message ?: "文件保存失败"
@@ -710,6 +780,8 @@ class SshViewModel(
     }
 
     fun onTerminalSizeChanged(cols: Int, rows: Int) {
+        terminalCols = cols
+        terminalRows = rows
         if (uiState.value.terminalSessionStarted) {
             resizeTerminal(cols, rows)
         } else {
@@ -825,12 +897,12 @@ class SshViewModel(
                         showDeleteConfirmDialog = false,
                         actionTargetFile = null,
                         fileList = updatedList,
-                        actionSuccessMessage = "删除成功"
+                        actionSuccessMessage = noted("删除成功")
                     )
                 }
                 silentRefreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "删除失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "删除失败"
@@ -842,10 +914,16 @@ class SshViewModel(
 
     private fun silentRefreshDirectory() {
         val path = uiState.value.currentPath
+        val epoch = sessionEpoch
         viewModelScope.launch {
             val result = repository.listFiles(path)
+            if (epoch != sessionEpoch || requestedDirectory != path) return@launch
             result.onSuccess { files ->
-                _uiState.update { it.copy(fileList = files) }
+                _uiState.update { it.copy(fileList = files, fileFetchError = null) }
+            }.onFailure { error ->
+                failRemote(error, "连接已断开，请重新连接") {
+                    it.copy(fileFetchError = error.message ?: "获取目录文件列表失败")
+                }
             }
         }
     }
@@ -866,12 +944,12 @@ class SshViewModel(
                         isOperatingFile = false,
                         showRenameDialog = false,
                         actionTargetFile = null,
-                        actionSuccessMessage = "重命名成功"
+                        actionSuccessMessage = noted("重命名成功")
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "重命名失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "重命名失败"
@@ -901,7 +979,7 @@ class SshViewModel(
                     )
                 }
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "校验计算失败") {
                     it.copy(
                         isCalculatingChecksum = false,
                         actionErrorMessage = error.message ?: "校验计算失败"
@@ -922,12 +1000,12 @@ class SshViewModel(
                         isOperatingFile = false,
                         showCompressDialog = false,
                         actionTargetFile = null,
-                        actionSuccessMessage = "压缩成功"
+                        actionSuccessMessage = noted("压缩成功")
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "压缩失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "压缩失败"
@@ -948,12 +1026,12 @@ class SshViewModel(
                         isOperatingFile = false,
                         showActionMenu = false,
                         actionTargetFile = null,
-                        actionSuccessMessage = "解压成功"
+                        actionSuccessMessage = noted("解压成功")
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                _uiState.update {
+                failRemote(error, "解压失败") {
                     it.copy(
                         isOperatingFile = false,
                         actionErrorMessage = error.message ?: "解压失败"
@@ -986,5 +1064,73 @@ class SshViewModel(
 
     fun clearActionMessages() {
         _uiState.update { it.copy(actionSuccessMessage = null, actionErrorMessage = null) }
+    }
+
+    private fun failRemote(error: Throwable, fallback: String, update: (SshUiState) -> SshUiState) {
+        if (!repository.isConnected()) {
+            dropToConnection(error.message ?: fallback)
+        } else {
+            _uiState.update { update(it) }
+        }
+    }
+
+    private fun dropToConnection(message: String) {
+        sessionEpoch++
+        directoryJob?.cancel()
+        requestedDirectory = "/"
+        terminalEmulator = null
+        _uiState.update {
+            it.copy(
+                isConnected = false,
+                isConnecting = false,
+                isLoadingFiles = false,
+                isOperatingFile = false,
+                isPreviewLoading = false,
+                isSavingFile = false,
+                isCalculatingChecksum = false,
+                fileList = emptyList(),
+                fileFetchError = null,
+                previewError = null,
+                selectedFilePreview = null,
+                showTerminalScreen = false,
+                terminalSessionStarted = false,
+                terminalClosed = false,
+                terminalLines = emptyList(),
+                pendingInitialCommand = null,
+                isCtrlActive = false,
+                connectionError = message,
+                isInArchiveMode = false,
+                archiveFile = null,
+                archiveSubPath = "",
+                archiveEntries = emptyList(),
+                archiveError = null,
+                showActionMenu = false,
+                showRenameDialog = false,
+                showDeleteConfirmDialog = false,
+                showCompressDialog = false,
+                showCreateFolderDialog = false,
+                showCreateFileDialog = false,
+                showFileDetailsDialog = false
+            )
+        }
+    }
+
+    private fun restartTerminal() {
+        val cols = terminalCols
+        val rows = terminalRows
+        terminalEmulator = null
+        _uiState.update {
+            it.copy(
+                terminalSessionStarted = false,
+                terminalClosed = false,
+                terminalLines = emptyList(),
+                isCtrlActive = false
+            )
+        }
+        startTerminalSession(cols, rows)
+    }
+
+    private fun noted(action: String): String {
+        return if (repository.consumeReconnectNotice()) "连接已恢复，$action" else action
     }
 }

@@ -17,7 +17,11 @@ import com.jh270.toolbox.data.RemotePlatform
 import com.jh270.toolbox.data.SshConfig
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -44,6 +48,12 @@ class SshRepository {
     @Volatile
     private var shellClosingLocally = false
 
+    private val gate = Mutex()
+    private var lastConfig: SshConfig? = null
+
+    @Volatile
+    private var reconnectNotified = false
+
     @Volatile
     var remotePlatform: RemotePlatform = RemotePlatform.UNKNOWN
         private set
@@ -68,7 +78,41 @@ class SshRepository {
     }
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
-        try {
+        gate.withLock { connectLocked(config, recovering = false) }
+    }
+
+    suspend fun reconnect(): Result<String> = withContext(Dispatchers.IO) {
+        gate.withLock {
+            val config = lastConfig ?: return@withLock Result.failure(IllegalStateException("没有可恢复的连接"))
+            connectLocked(config, recovering = true)
+        }
+    }
+
+    suspend fun probeAlive(): Boolean = withContext(Dispatchers.IO) {
+        if (session == null || sftpChannel == null) return@withContext false
+        gate.withLock {
+            try {
+                val sess = session ?: return@withLock false
+                val channel = sftpChannel ?: return@withLock false
+                if (!sess.isConnected || !channel.isConnected) return@withLock false
+                channel.pwd()
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    fun consumeReconnectNotice(): Boolean {
+        if (!reconnectNotified) return false
+        reconnectNotified = false
+        return true
+    }
+
+    private fun connectLocked(config: SshConfig, recovering: Boolean): Result<String> {
+        var openedSession: Session? = null
+        var openedChannel: ChannelSftp? = null
+        return try {
             disconnectInternal()
             remotePlatform = RemotePlatform.UNKNOWN
             val jsch = JSch()
@@ -96,6 +140,7 @@ class SshRepository {
             }
 
             val newSession = jsch.getSession(config.username, config.host, config.port)
+            openedSession = newSession
             if (config.authType == AuthType.PASSWORD) {
                 newSession.setPassword(config.password)
             }
@@ -114,26 +159,107 @@ class SshRepository {
                 properties["PreferredAuthentications"] = "publickey,password,keyboard-interactive"
             }
             newSession.setConfig(properties)
-            newSession.timeout = 15000
-            newSession.connect(15000)
+            newSession.timeout = 20000
+            newSession.setServerAliveInterval(15_000)
+            newSession.setServerAliveCountMax(4)
+            newSession.connect(20000)
 
             remotePlatform = detectRemotePlatform(newSession)
 
-            val channel = newSession.openChannel("sftp")
-            channel.connect(15000)
+            val channel = newSession.openChannel("sftp") as ChannelSftp
+            openedChannel = channel
+            channel.connect(20000)
 
             session = newSession
-            sftpChannel = channel as ChannelSftp
+            sftpChannel = channel
+            lastConfig = config
+            if (recovering) reconnectNotified = true
 
-            val pwd = RemotePath.normalize(sftpChannel?.pwd() ?: "/")
+            val pwd = RemotePath.normalize(channel.pwd() ?: "/")
             Result.success(pwd)
         } catch (e: Exception) {
+            try {
+                openedChannel?.disconnect()
+            } catch (_: Exception) {}
+            try {
+                openedSession?.disconnect()
+            } catch (_: Exception) {}
+            disconnectInternal()
             Result.failure(Exception(formatSshException(e)))
         }
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
-        disconnectInternal()
+        gate.withLock {
+            lastConfig = null
+            reconnectNotified = false
+            disconnectInternal()
+        }
+    }
+
+    private suspend fun <T> remoteCall(block: () -> Result<T>): Result<T> = withContext(Dispatchers.IO) {
+        gate.withLock {
+            val first = invokeRemote(block)
+            if (first.isSuccess) return@withLock first
+            val error = first.exceptionOrNull() ?: return@withLock first
+            if (error is CancellationException) throw error
+            ensureActive()
+            if (!shouldReconnect(error)) return@withLock first
+            val config = lastConfig ?: return@withLock first
+            val restored = connectLocked(config, recovering = true)
+            if (restored.isFailure) {
+                val failure = restored.exceptionOrNull() ?: error
+                if (failure is CancellationException) throw failure
+                return@withLock Result.failure(failure)
+            }
+            ensureActive()
+            invokeRemote(block)
+        }
+    }
+
+    private fun <T> invokeRemote(block: () -> Result<T>): Result<T> {
+        return try {
+            val result = block()
+            val error = result.exceptionOrNull()
+            if (error is CancellationException) throw error
+            result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun shouldReconnect(error: Throwable): Boolean {
+        if (isTransportFailure(error)) return true
+        return session?.isConnected != true || sftpChannel?.isConnected != true
+    }
+
+    private fun isTransportFailure(error: Throwable): Boolean {
+        val text = generateSequence(error) { it.cause }
+            .joinToString(" ") { "${it.javaClass.name} ${it.message}" }
+            .lowercase()
+        val markers = listOf(
+            "session is down",
+            "channel is not opened",
+            "channel is closed",
+            "pipe closed",
+            "broken pipe",
+            "connection reset",
+            "connection abort",
+            "socket closed",
+            "socket is closed",
+            "inputstream is closed",
+            "outputstream is closed",
+            "end of io stream",
+            "not connected",
+            "session is not connected",
+            "software caused connection abort",
+            "connection timed out",
+            "sockettimeoutexception",
+            "未连接至 ssh"
+        )
+        return markers.any { text.contains(it) }
     }
 
     private fun disconnectInternal() {
@@ -158,7 +284,7 @@ class SshRepository {
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
-    suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = remoteCall {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             closeShellSessionInternal()
@@ -233,7 +359,7 @@ class SshRepository {
     }
 
     suspend fun closeShellSession() = withContext(Dispatchers.IO) {
-        closeShellSessionInternal()
+        gate.withLock { closeShellSessionInternal() }
     }
 
     private fun closeShellSessionInternal() {
@@ -260,7 +386,7 @@ class SshRepository {
         shellChannel = null
     }
 
-    suspend fun listFiles(path: String): Result<List<RemoteFile>> = withContext(Dispatchers.IO) {
+    suspend fun listFiles(path: String): Result<List<RemoteFile>> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val targetPath = RemotePath.normalize(if (path.isBlank()) "/" else path)
@@ -326,7 +452,7 @@ class SshRepository {
         }
     }
 
-    suspend fun createFolder(parentPath: String, folderName: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun createFolder(parentPath: String, folderName: String): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val newFolderPath = RemotePath.join(parentPath, folderName)
@@ -334,7 +460,7 @@ class SshRepository {
         }
     }
 
-    suspend fun createFile(parentPath: String, fileName: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun createFile(parentPath: String, fileName: String): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val newFilePath = RemotePath.join(parentPath, fileName)
@@ -343,7 +469,7 @@ class SshRepository {
         }
     }
 
-    suspend fun previewFile(file: RemoteFile, maxBytes: Int = 5242880): Result<FilePreview> = withContext(Dispatchers.IO) {
+    suspend fun previewFile(file: RemoteFile, maxBytes: Int = 5242880): Result<FilePreview> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
 
@@ -441,7 +567,7 @@ class SshRepository {
         }
     }
 
-    suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = withContext(Dispatchers.IO) {
+    suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = remoteCall {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
             val lowerName = file.name.lowercase()
@@ -454,7 +580,10 @@ class SshRepository {
                     lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> "tar -ztvf ${shellArg(file.path)}"
                     else -> "tar -tvf ${shellArg(file.path)}"
                 })
-            } catch (_: Exception) { "" }
+            } catch (e: Exception) {
+                if (isTransportFailure(e)) throw e
+                ""
+            }
 
             if (detailedOutput.isNotBlank()) {
                 if (isZip) {
@@ -468,7 +597,10 @@ class SshRepository {
                 val tarFlag = if (lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz")) "-ztf" else "-tf"
                 val pathOnly = try {
                     runExecCapture(sess, "tar $tarFlag ${shellArg(file.path)}")
-                } catch (_: Exception) { "" }
+                } catch (e: Exception) {
+                if (isTransportFailure(e)) throw e
+                ""
+            }
                 entriesList += parsePathOnlyListing(pathOnly)
             }
 
@@ -487,7 +619,7 @@ class SshRepository {
         }
     }
 
-    suspend fun previewArchiveEntry(archiveFile: RemoteFile, entryPath: String): Result<FilePreview> = withContext(Dispatchers.IO) {
+    suspend fun previewArchiveEntry(archiveFile: RemoteFile, entryPath: String): Result<FilePreview> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val lowerName = archiveFile.name.lowercase()
@@ -582,7 +714,7 @@ class SshRepository {
         }
     }
 
-    suspend fun saveFileContent(path: String, content: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun saveFileContent(path: String, content: String): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val bytes = content.toByteArray(Charsets.UTF_8)
@@ -591,7 +723,7 @@ class SshRepository {
         }
     }
 
-    suspend fun deleteFileOrFolder(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteFileOrFolder(file: RemoteFile): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             if (file.isDirectory) {
@@ -619,7 +751,7 @@ class SshRepository {
         }
     }
 
-    suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val newPath = RemotePath.join(RemotePath.parent(file.path), newName)
@@ -627,7 +759,7 @@ class SshRepository {
         }
     }
 
-    suspend fun calculateChecksums(file: RemoteFile): Result<ChecksumResult> = withContext(Dispatchers.IO) {
+    suspend fun calculateChecksums(file: RemoteFile): Result<ChecksumResult> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val md5Digest = MessageDigest.getInstance("MD5")
@@ -950,7 +1082,7 @@ class SshRepository {
         }
     }
 
-    suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun compressFile(file: RemoteFile, format: String): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val parentDir = RemotePath.parent(file.path)
@@ -1034,7 +1166,7 @@ class SshRepository {
         }
     }
 
-    suspend fun decompressFile(file: RemoteFile): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun decompressFile(file: RemoteFile): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val parentDir = RemotePath.parent(file.path)
