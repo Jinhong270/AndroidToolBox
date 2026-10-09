@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
+import com.jh270.toolbox.data.RemotePlatform
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,11 +97,21 @@ fun RemoteFileManagerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "文件管理器",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            text = "文件管理器",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = when (uiState.remotePlatform) {
+                                RemotePlatform.WINDOWS -> "Windows"
+                                RemotePlatform.UNIX -> "Linux"
+                                RemotePlatform.UNKNOWN -> "SSH"
+                            },
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.openTerminal() }) {
@@ -156,7 +167,7 @@ fun RemoteFileManagerScreen(
                     keyboardActions = KeyboardActions(
                         onDone = {
                             if (!uiState.isInArchiveMode) {
-                                viewModel.loadDirectory(editingPath)
+                                viewModel.loadDirectory(RemotePath.fromDisplayPath(editingPath, uiState.remotePlatform))
                             }
                         }
                     )
@@ -369,6 +380,7 @@ fun RemoteFileManagerScreen(
             checksumResult = uiState.checksumResult,
             isCalculating = uiState.isCalculatingChecksum,
             errorMessage = uiState.actionErrorMessage,
+            displayPath = RemotePath.toDisplayPath(uiState.actionTargetFile.path, uiState.remotePlatform),
             onCalculateChecksum = { viewModel.executeCalculateChecksum() },
             onDismiss = { viewModel.closeFileDetailsDialog() }
         )

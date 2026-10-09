@@ -643,6 +643,7 @@ fun FileDetailDialog(
     checksumResult: ChecksumResult?,
     isCalculating: Boolean,
     errorMessage: String?,
+    displayPath: String,
     onCalculateChecksum: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -691,7 +692,7 @@ fun FileDetailDialog(
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "名称: ${targetFile.name}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text(text = "路径: ${targetFile.path}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        Text(text = "路径: $displayPath", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                         Text(text = "类型: ${if (targetFile.isDirectory) "文件夹" else targetFile.fileType.name}", style = MaterialTheme.typography.bodySmall)
                         Text(text = "大小: ${if (targetFile.isDirectory) "-" else formatFileSize(targetFile.size)}", style = MaterialTheme.typography.bodySmall)
                         Text(text = "权限位: ${targetFile.permissions}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)

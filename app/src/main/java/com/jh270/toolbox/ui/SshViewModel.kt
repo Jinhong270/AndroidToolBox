@@ -9,6 +9,7 @@ import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
+import com.jh270.toolbox.data.RemotePlatform
 import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
@@ -32,6 +33,7 @@ data class SshUiState(
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
     val connectionError: String? = null,
+    val remotePlatform: RemotePlatform = RemotePlatform.UNKNOWN,
     val currentPath: String = "/",
     val fileList: List<RemoteFile> = emptyList(),
     val isLoadingFiles: Boolean = false,
@@ -76,7 +78,7 @@ data class SshUiState(
             val archiveName = archiveFile?.name ?: ""
             if (archiveSubPath.isEmpty()) archiveName else "$archiveName/$archiveSubPath"
         } else {
-            currentPath
+            RemotePath.toDisplayPath(currentPath, remotePlatform)
         }
 }
 
@@ -219,6 +221,7 @@ class SshViewModel(
                     it.copy(
                         isConnecting = false,
                         isConnected = true,
+                        remotePlatform = repository.remotePlatform,
                         currentPath = pwd,
                         terminalPath = pwd,
                         connectionError = null,
@@ -296,6 +299,7 @@ class SshViewModel(
                         it.copy(
                             isLoadingFiles = false,
                             isConnected = true,
+                            remotePlatform = repository.remotePlatform,
                             fileList = files,
                             fileFetchError = null,
                             actionSuccessMessage = if (restored) "连接已恢复" else it.actionSuccessMessage
@@ -339,6 +343,7 @@ class SshViewModel(
                     it.copy(
                         isConnected = true,
                         isLoadingFiles = false,
+                        remotePlatform = repository.remotePlatform,
                         actionSuccessMessage = "连接已恢复"
                     )
                 }
@@ -1098,6 +1103,7 @@ class SshViewModel(
                 terminalLines = emptyList(),
                 pendingInitialCommand = null,
                 isCtrlActive = false,
+                remotePlatform = RemotePlatform.UNKNOWN,
                 connectionError = message,
                 isInArchiveMode = false,
                 archiveFile = null,
