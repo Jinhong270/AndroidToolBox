@@ -1,6 +1,8 @@
 package com.jh270.toolbox.ui
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jh270.toolbox.data.ArchiveEntryItem
@@ -8,6 +10,7 @@ import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
+import com.jh270.toolbox.data.AppSettings
 import com.jh270.toolbox.data.ProfileStore
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
@@ -16,6 +19,7 @@ import com.jh270.toolbox.data.SshConfig
 import com.jh270.toolbox.data.SshProfile
 import com.jh270.toolbox.ssh.SshRepository
 import com.jh270.toolbox.ssh.TerminalEmulator
+import com.jh270.toolbox.ssh.TerminalKeepAliveService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -70,6 +74,8 @@ data class SshUiState(
     val terminalSessionStarted: Boolean = false,
     val pendingInitialCommand: String? = null,
     val terminalClosed: Boolean = false,
+    val terminalBackground: Int = AppSettings.DEFAULT_TERMINAL_BG,
+    val terminalSelection: Int = AppSettings.DEFAULT_TERMINAL_SELECTION,
     val isCtrlActive: Boolean = false,
     val isOperatingFile: Boolean = false,
     val isCalculatingChecksum: Boolean = false,
@@ -103,9 +109,39 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     private var terminalCols: Int = 80
     private var terminalRows: Int = 24
     private var backgroundJob: Job? = null
+    private var shellStartJob: Job? = null
 
     init {
-        _uiState.update { it.copy(savedProfiles = ProfileStore.load(getApplication())) }
+        val app = getApplication<Application>()
+        _uiState.update {
+            it.copy(
+                savedProfiles = ProfileStore.load(app),
+                terminalBackground = AppSettings.terminalBackground(app),
+                terminalSelection = AppSettings.terminalSelection(app)
+            )
+        }
+    }
+
+    fun setTerminalBackground(color: Int) {
+        AppSettings.setTerminalBackground(getApplication(), color)
+        _uiState.update { it.copy(terminalBackground = color) }
+    }
+
+    fun setTerminalSelection(color: Int) {
+        AppSettings.setTerminalSelection(getApplication(), color)
+        _uiState.update { it.copy(terminalSelection = color) }
+    }
+
+    private fun startKeepAlive() {
+        val app = getApplication<Application>()
+        val intent = Intent(app, TerminalKeepAliveService::class.java)
+        ContextCompat.startForegroundService(app, intent)
+    }
+
+    private fun stopKeepAlive() {
+        val app = getApplication<Application>()
+        app.stopService(Intent(app, TerminalKeepAliveService::class.java))
+        TerminalKeepAliveService.releaseWakeLock()
     }
 
     private fun persistProfiles(profiles: List<SshProfile>) {
@@ -129,6 +165,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         sessionEpoch++
         directoryJob?.cancel()
         backgroundJob?.cancel()
+        stopKeepAlive()
         requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
@@ -263,6 +300,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         sessionEpoch++
         directoryJob?.cancel()
         backgroundJob?.cancel()
+        stopKeepAlive()
+        terminalEmulator = null
         requestedDirectory = "/"
         viewModelScope.launch {
             repository.disconnect()
@@ -761,12 +800,29 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openTerminal(initialCommand: String? = null) {
+        val alive = uiState.value.terminalSessionStarted && repository.isShellRunning() && !uiState.value.terminalClosed
+        if (alive) {
+            _uiState.update {
+                it.copy(
+                    showTerminalScreen = true,
+                    terminalLines = terminalEmulator?.getLines().orEmpty(),
+                    terminalRevision = it.terminalRevision + 1,
+                    terminalClosed = false,
+                    isCtrlActive = false
+                )
+            }
+            if (!initialCommand.isNullOrBlank()) {
+                viewModelScope.launch { repository.sendShellInput(initialCommand + "\r") }
+            }
+            startKeepAlive()
+            return
+        }
         terminalEmulator = null
         _uiState.update {
             it.copy(
                 showTerminalScreen = true,
                 terminalLines = emptyList(),
-                terminalRevision = 0,
+                terminalRevision = it.terminalRevision + 1,
                 terminalSessionStarted = false,
                 pendingInitialCommand = initialCommand,
                 terminalClosed = false,
@@ -776,8 +832,19 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startTerminalSession(cols: Int, rows: Int) {
-        if (uiState.value.terminalSessionStarted) return
-        val emulator = TerminalEmulator(cols, rows)
+        if (repository.isShellRunning()) {
+            _uiState.update {
+                it.copy(
+                    terminalSessionStarted = true,
+                    terminalClosed = false,
+                    terminalLines = terminalEmulator?.getLines().orEmpty(),
+                    terminalRevision = it.terminalRevision + 1
+                )
+            }
+            return
+        }
+        if (shellStartJob?.isActive == true) return
+        val emulator = terminalEmulator ?: TerminalEmulator(cols, rows)
         terminalEmulator = emulator
         _uiState.update {
             it.copy(
@@ -787,12 +854,14 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                 terminalRevision = it.terminalRevision + 1
             )
         }
-        viewModelScope.launch {
+        shellStartJob = viewModelScope.launch {
             repository.startShellSession(cols, rows, { chunk ->
                 feedTerminalOutput(chunk)
             }) {
+                stopKeepAlive()
                 _uiState.update { it.copy(terminalClosed = true, isCtrlActive = false) }
             }
+            startKeepAlive()
             val initial = uiState.value.pendingInitialCommand
             if (!initial.isNullOrBlank()) {
                 repository.sendShellInput(initial + "\r")
@@ -825,10 +894,17 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun hideTerminal() {
+        _uiState.update { it.copy(showTerminalScreen = false, isCtrlActive = false) }
+        if (repository.isShellRunning()) startKeepAlive()
+    }
+
     fun closeTerminal() {
+        shellStartJob?.cancel()
         viewModelScope.launch {
             repository.closeShellSession()
             terminalEmulator = null
+            stopKeepAlive()
             _uiState.update {
                 it.copy(
                     showTerminalScreen = false,
@@ -1105,6 +1181,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         sessionEpoch++
         directoryJob?.cancel()
         backgroundJob?.cancel()
+        stopKeepAlive()
         requestedDirectory = "/"
         terminalEmulator = null
         _uiState.update {
@@ -1148,6 +1225,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     private fun restartTerminal() {
         val cols = terminalCols
         val rows = terminalRows
+        shellStartJob?.cancel()
+        shellStartJob = null
         terminalEmulator = null
         _uiState.update {
             it.copy(

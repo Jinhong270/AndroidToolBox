@@ -294,6 +294,10 @@ class SshRepository {
         return session?.isConnected == true && sftpChannel?.isConnected == true
     }
 
+    fun isShellRunning(): Boolean {
+        return shellChannel?.isConnected == true && shellOutputStream != null
+    }
+
     @Suppress("BlockingMethodInNonBlockingContext")
     suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = remoteCall {
         runCatching {

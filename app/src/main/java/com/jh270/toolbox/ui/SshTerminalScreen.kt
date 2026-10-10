@@ -2,12 +2,13 @@ package com.jh270.toolbox.ui
 
 import android.content.ClipData
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,7 +45,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,12 +53,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
@@ -80,11 +84,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.jh270.toolbox.ssh.TerminalEmulator
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 
 private val TerminalBg = Color(0xFF0A0E14)
 private val TerminalBar = Color(0xFF11161F)
@@ -93,7 +101,7 @@ private val TerminalDim = Color(0xFF6E7681)
 private val TerminalAccent = Color(0xFF38BDF8)
 private val TerminalKeyBg = Color(0xFF1B2330)
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SshTerminalScreen(
     viewModel: SshViewModel,
@@ -109,13 +117,13 @@ fun SshTerminalScreen(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var input by remember { mutableStateOf(TextFieldValue("")) }
-    var selectionAnchor by remember { mutableIntStateOf(-1) }
-    var selectionEnd by remember { mutableIntStateOf(-1) }
-    val selecting = selectionAnchor >= 0 && uiState.terminalLines.isNotEmpty()
-
+    var anchor by remember { mutableStateOf<TextPoint?>(null) }
+    var focus by remember { mutableStateOf<TextPoint?>(null) }
+    val termBg = Color(uiState.terminalBackground)
+    val selectionColor = Color(uiState.terminalSelection)
     fun clearSelection() {
-        selectionAnchor = -1
-        selectionEnd = -1
+        anchor = null
+        focus = null
     }
 
     fun linePlain(index: Int): String {
@@ -123,20 +131,21 @@ fun SshTerminalScreen(
         return line.runs.joinToString("") { it.text }.trimEnd()
     }
 
-    fun selectedText(): String {
-        val last = uiState.terminalLines.lastIndex
-        if (last < 0 || selectionAnchor < 0) return ""
-        val from = minOf(selectionAnchor, selectionEnd).coerceIn(0, last)
-        val to = maxOf(selectionAnchor, selectionEnd).coerceIn(0, last)
-        return (from..to).joinToString("\n") { linePlain(it) }
+    fun orderedSelection(): Pair<TextPoint, TextPoint>? {
+        val a = anchor ?: return null
+        val b = focus ?: return null
+        return if (a.line < b.line || (a.line == b.line && a.col <= b.col)) a to b else b to a
     }
 
-    fun selectedCount(): Int {
-        val last = uiState.terminalLines.lastIndex
-        if (last < 0 || selectionAnchor < 0) return 0
-        val from = minOf(selectionAnchor, selectionEnd).coerceIn(0, last)
-        val to = maxOf(selectionAnchor, selectionEnd).coerceIn(0, last)
-        return to - from + 1
+    fun selectedText(): String {
+        val pair = orderedSelection() ?: return ""
+        val (start, end) = pair
+        return (start.line..end.line).joinToString("\n") { index ->
+            val text = linePlain(index)
+            val from = if (index == start.line) start.col.coerceIn(0, text.length) else 0
+            val toExclusive = if (index == end.line) (end.col + 1).coerceIn(0, text.length) else text.length
+            if (from < toExclusive) text.substring(from, toExclusive) else ""
+        }
     }
 
     fun copyText(text: String) {
@@ -172,7 +181,7 @@ fun SshTerminalScreen(
     }
 
     LaunchedEffect(uiState.terminalRevision) {
-        if (autoScroll && !selecting && uiState.terminalLines.isNotEmpty()) {
+        if (autoScroll && anchor == null && uiState.terminalLines.isNotEmpty()) {
             listState.scrollToItem(uiState.terminalLines.size - 1)
         }
     }
@@ -186,11 +195,11 @@ fun SshTerminalScreen(
     }
 
     Scaffold(
-        containerColor = TerminalBg,
+        containerColor = termBg,
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.closeTerminal() }) {
+                    IconButton(onClick = { viewModel.hideTerminal() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
@@ -257,7 +266,7 @@ fun SshTerminalScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(TerminalBg)
+                .background(termBg)
                 .imePadding()
         ) {
             BoxWithConstraints(
@@ -277,47 +286,82 @@ fun SshTerminalScreen(
                     viewModel.onTerminalSizeChanged(cols, rows)
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            focusRequester.requestFocus()
-                            keyboardController?.show()
-                        }
-                ) {
+                val pair = orderedSelection()
+                Box(modifier = Modifier.fillMaxSize().background(termBg)) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(uiState.terminalLines.size) { index ->
                             val line = uiState.terminalLines[index]
-                            val last = uiState.terminalLines.lastIndex
-                            val from = if (selecting) minOf(selectionAnchor, selectionEnd).coerceIn(0, last) else -1
-                            val to = if (selecting) maxOf(selectionAnchor, selectionEnd).coerceIn(0, last) else -1
+                            val text = linePlain(index)
+                            val range = pair?.let { (start, end) -> selectionRange(index, text.length, start, end) }
                             TerminalLineText(
                                 line = line,
                                 fontSize = fontSize.sp,
-                                selected = selecting && index in from..to,
-                                onClick = {
-                                    if (selecting) {
-                                        selectionEnd = index
-                                    } else {
+                                selection = range,
+                                selectionColor = selectionColor,
+                                terminalBackground = termBg,
+                                onPress = { x ->
+                                    val col = columnAt(x, charWidthPx, text.length)
+                                    if (anchor == null) {
                                         focusRequester.requestFocus()
                                         keyboardController?.show()
+                                    } else {
+                                        focus = TextPoint(index, col)
                                     }
                                 },
-                                onLongClick = {
-                                    selectionAnchor = index
-                                    selectionEnd = index
+                                onLongPress = { x ->
+                                    val col = columnAt(x, charWidthPx, text.length)
+                                    val word = wordBounds(text, col)
+                                    anchor = TextPoint(index, word.first)
+                                    focus = TextPoint(index, word.second)
+                                },
+                                onDragSelect = { x ->
+                                    focus = TextPoint(index, columnAt(x, charWidthPx, text.length))
                                 }
                             )
                         }
                     }
 
-                    if (!autoScroll) {
+                    if (pair != null) {
+                        val startSpot = caretOffset(listState, pair.first.line, pair.first.col, charWidthPx)
+                        val endSpot = caretOffset(listState, pair.second.line, pair.second.col + 1, charWidthPx)
+                        SelectionOverlay(
+                            start = startSpot,
+                            end = endSpot,
+                            color = selectionColor,
+                            onDragStart = { point ->
+                                val other = orderedSelection()?.second ?: point
+                                if (pointAfter(point, other)) {
+                                    anchor = other
+                                    focus = point
+                                } else {
+                                    anchor = point
+                                    focus = other
+                                }
+                            },
+                            onDragEnd = { point ->
+                                val other = orderedSelection()?.first ?: point
+                                if (pointAfter(other, point)) {
+                                    anchor = point
+                                    focus = other
+                                } else {
+                                    anchor = other
+                                    focus = point
+                                }
+                            },
+                            pointAt = { offset ->
+                                pointFromOffset(offset, listState, charWidthPx, uiState.terminalLines.size, ::linePlain)
+                            },
+                            onCopy = {
+                                copyText(selectedText())
+                                clearSelection()
+                            }
+                        )
+                    }
+
+                    if (!autoScroll && anchor == null) {
                         Surface(
                             onClick = {
                                 autoScroll = true
@@ -344,17 +388,6 @@ fun SshTerminalScreen(
                 }
             }
 
-            if (selecting) {
-                SelectionBar(
-                    count = selectedCount(),
-                    onCopy = {
-                        copyText(selectedText())
-                        clearSelection()
-                    },
-                    onCancel = ::clearSelection
-                )
-            }
-
             if (uiState.terminalClosed) {
                 TerminalClosedBar(onExit = { viewModel.closeTerminal() })
             } else {
@@ -363,11 +396,11 @@ fun SshTerminalScreen(
                     uiState = uiState,
                     onBackspace = ::sendBackspace,
                     onCopy = {
-                        if (selecting) {
+                        if (anchor != null) {
                             copyText(selectedText())
                             clearSelection()
                         } else {
-                            Toast.makeText(context, "先长按文字，再点另一行选择", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "长按文字后再复制", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onPaste = ::pasteClipboard
@@ -458,7 +491,7 @@ fun SshTerminalScreen(
                                 }
                                 Key.C -> {
                                     if (event.isCtrlPressed && event.isShiftPressed) {
-                                        if (selecting) {
+                                        if (anchor != null) {
                                             copyText(selectedText())
                                             clearSelection()
                                         } else {
@@ -495,44 +528,49 @@ fun SshTerminalScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TerminalLineText(
     line: TerminalEmulator.TerminalLine,
     fontSize: TextUnit,
-    selected: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    selection: IntRange?,
+    selectionColor: Color,
+    terminalBackground: Color,
+    onPress: (Float) -> Unit,
+    onLongPress: (Float) -> Unit,
+    onDragSelect: (Float) -> Unit
 ) {
-    val annotated = remember(line) {
+    val plainFg = readableForeground(terminalBackground)
+    val annotated = remember(line, selection, selectionColor, terminalBackground) {
         buildAnnotatedString {
+            var index = 0
             for (run in line.runs) {
                 val style = run.style
-                var fg = Color(style.fg)
-                var bg = Color(style.bg)
-                if (style.inverse) {
-                    val tmp = fg
-                    fg = bg
-                    bg = tmp
-                }
-                pushStyle(
-                    SpanStyle(
-                        color = if (style.dim) fg.copy(alpha = 0.55f) else fg,
-                        background = bg,
-                        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                        fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                        textDecoration = when {
-                            style.underline && style.strike -> TextDecoration.combine(
-                                listOf(TextDecoration.Underline, TextDecoration.LineThrough)
-                            )
-                            style.underline -> TextDecoration.Underline
-                            style.strike -> TextDecoration.LineThrough
-                            else -> TextDecoration.None
-                        }
+                val rawFg = if (style.fg == TerminalEmulator.Style.DEFAULT_FG) plainFg else Color(style.fg)
+                val rawBg = if (style.bg == TerminalEmulator.Style.DEFAULT_BG) terminalBackground else Color(style.bg)
+                val fg = if (style.inverse) rawBg else rawFg
+                val bg = if (style.inverse) rawFg else rawBg
+                for (ch in run.text) {
+                    val selectedHere = selection != null && index in selection
+                    pushStyle(
+                        SpanStyle(
+                            color = if (selectedHere) readableForeground(selectionColor) else if (style.dim) fg.copy(alpha = 0.55f) else fg,
+                            background = if (selectedHere) selectionColor else bg,
+                            fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
+                            textDecoration = when {
+                                style.underline && style.strike -> TextDecoration.combine(
+                                    listOf(TextDecoration.Underline, TextDecoration.LineThrough)
+                                )
+                                style.underline -> TextDecoration.Underline
+                                style.strike -> TextDecoration.LineThrough
+                                else -> TextDecoration.None
+                            }
+                        )
                     )
-                )
-                append(run.text)
-                pop()
+                    append(ch)
+                    pop()
+                    index++
+                }
             }
         }
     }
@@ -546,35 +584,97 @@ private fun TerminalLineText(
         overflow = TextOverflow.Clip,
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (selected) Color(0x5538BDF8) else Color.Transparent)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .background(terminalBackground)
+            .pointerInput(line) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val start = down.position
+                    val longPress = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis.toLong()) {
+                        var tapped = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
+                                tapped = true
+                                break
+                            }
+                            val dx = change.position.x - start.x
+                            val dy = change.position.y - start.y
+                            val slop = viewConfiguration.touchSlop
+                            if (dx * dx + dy * dy > slop * slop) break
+                        }
+                        tapped
+                    }
+                    if (longPress == null) {
+                        onLongPress(start.x)
+                        drag(down.id) { change ->
+                            onDragSelect(change.position.x)
+                        }
+                    } else if (longPress) {
+                        onPress(start.x)
+                    }
+                }
+            }
     )
 }
 
 @Composable
-private fun SelectionBar(
-    count: Int,
-    onCopy: () -> Unit,
-    onCancel: () -> Unit
+private fun SelectionOverlay(
+    start: Offset?,
+    end: Offset?,
+    color: Color,
+    onDragStart: (TextPoint) -> Unit,
+    onDragEnd: (TextPoint) -> Unit,
+    pointAt: (Offset) -> TextPoint?,
+    onCopy: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(TerminalBar)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = "已选 $count 行",
-            color = TerminalFg,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
-            modifier = Modifier.weight(1f)
-        )
-        TerminalKey("复制", onClick = onCopy)
-        TerminalKey("取消", onClick = onCancel)
+    if (start != null) {
+        SelectionHandle(center = start, color = color, onMove = { pointAt(it)?.let(onDragStart) })
+        Box(
+            modifier = Modifier
+                .offset {
+                    val x = (start.x - 28.dp.toPx()).roundToInt().coerceAtLeast(4)
+                    val y = (start.y - 52.dp.toPx()).roundToInt().coerceAtLeast(4)
+                    IntOffset(x, y)
+                }
+                .shadow(8.dp, RoundedCornerShape(10.dp))
+                .background(Color(0xFF111827), RoundedCornerShape(10.dp))
+                .clickable(onClick = onCopy)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(text = "复制", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
     }
+    if (end != null) {
+        SelectionHandle(center = end, color = color, onMove = { pointAt(it)?.let(onDragEnd) })
+    }
+}
+
+@Composable
+private fun SelectionHandle(
+    center: Offset,
+    color: Color,
+    onMove: (Offset) -> Unit
+) {
+    val latest = androidx.compose.runtime.rememberUpdatedState(center)
+    Box(
+        modifier = Modifier
+            .offset { IntOffset((center.x - 14.dp.toPx()).roundToInt(), (center.y - 6.dp.toPx()).roundToInt()) }
+            .size(28.dp)
+            .shadow(4.dp, CircleShape)
+            .background(Color.White, CircleShape)
+            .border(4.dp, color, CircleShape)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    val origin = latest.value
+                    drag(down.id) { change ->
+                        onMove(origin + change.position - down.position)
+                        change.consume()
+                    }
+                }
+            }
+    )
 }
 
 @Composable
@@ -656,6 +756,66 @@ private fun TerminalKey(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
+}
+
+private data class TextPoint(val line: Int, val col: Int)
+
+private fun columnAt(x: Float, charWidth: Float, length: Int): Int {
+    if (charWidth <= 0f || length <= 0) return 0
+    return (x / charWidth).toInt().coerceIn(0, length - 1)
+}
+
+private fun wordBounds(text: String, col: Int): Pair<Int, Int> {
+    if (text.isEmpty()) return 0 to 0
+    val index = col.coerceIn(0, text.lastIndex)
+    fun word(ch: Char) = ch.isLetterOrDigit() || ch == '_' || ch == '.' || ch == '/' || ch == '-' || ch == ':'
+    if (!word(text[index])) return index to index
+    var start = index
+    var end = index
+    while (start > 0 && word(text[start - 1])) start--
+    while (end < text.lastIndex && word(text[end + 1])) end++
+    return start to end
+}
+
+private fun pointAfter(left: TextPoint, right: TextPoint): Boolean {
+    return left.line > right.line || (left.line == right.line && left.col > right.col)
+}
+
+private fun selectionRange(line: Int, length: Int, start: TextPoint, end: TextPoint): IntRange? {
+    if (length <= 0 || line < start.line || line > end.line) return null
+    val from = if (line == start.line) start.col.coerceIn(0, length - 1) else 0
+    val to = if (line == end.line) end.col.coerceIn(0, length - 1) else length - 1
+    if (from > to) return null
+    return from..to
+}
+
+private fun caretOffset(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    line: Int,
+    col: Int,
+    charWidth: Float
+): Offset? {
+    val item = state.layoutInfo.visibleItemsInfo.find { it.index == line } ?: return null
+    return Offset(col.coerceAtLeast(0) * charWidth, item.offset + item.size.toFloat())
+}
+
+private fun pointFromOffset(
+    offset: Offset,
+    state: androidx.compose.foundation.lazy.LazyListState,
+    charWidth: Float,
+    count: Int,
+    lineText: (Int) -> String
+): TextPoint? {
+    if (count <= 0) return null
+    val item = state.layoutInfo.visibleItemsInfo.minByOrNull {
+        abs((it.offset + it.size / 2f) - offset.y)
+    } ?: return null
+    return TextPoint(item.index, columnAt(offset.x, charWidth, lineText(item.index).length))
+}
+
+private fun readableForeground(background: Color): Color {
+    val luminance = (0.2126f * background.red) + (0.7152f * background.green) + (0.0722f * background.blue)
+    return if (luminance > 0.62f) Color(0xFF1C1917) else Color(0xFFF8FAFC)
 }
 
 private fun committedText(value: TextFieldValue): String {
