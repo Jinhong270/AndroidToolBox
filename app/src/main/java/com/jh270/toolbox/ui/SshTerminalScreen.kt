@@ -317,8 +317,9 @@ fun SshTerminalScreen(
                                     anchor = TextPoint(index, word.first)
                                     focus = TextPoint(index, word.second)
                                 },
-                                onDragSelect = { x ->
-                                    focus = TextPoint(index, columnAt(x, charWidthPx, text.length))
+                                onDragSelect = { x, dy ->
+                                    val targetIndex = (index + (dy / lineHeightPx).roundToInt()).coerceIn(0, uiState.terminalLines.size - 1)
+                                    focus = TextPoint(targetIndex, columnAt(x, charWidthPx, linePlain(targetIndex).length))
                                 }
                             )
                         }
@@ -537,7 +538,7 @@ private fun TerminalLineText(
     terminalBackground: Color,
     onPress: (Float) -> Unit,
     onLongPress: (Float) -> Unit,
-    onDragSelect: (Float) -> Unit
+    onDragSelect: (Float, Float) -> Unit
 ) {
     val plainFg = readableForeground(terminalBackground)
     val annotated = remember(line, selection, selectionColor, terminalBackground) {
@@ -608,7 +609,8 @@ private fun TerminalLineText(
                     if (longPress == null) {
                         onLongPress(start.x)
                         drag(down.id) { change ->
-                            onDragSelect(change.position.x)
+                            onDragSelect(change.position.x, change.position.y - start.y)
+                            change.consume()
                         }
                     } else if (longPress) {
                         onPress(start.x)
@@ -667,9 +669,8 @@ private fun SelectionHandle(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    val origin = latest.value
                     drag(down.id) { change ->
-                        onMove(origin + change.position - down.position)
+                        onMove(latest.value + change.position - down.position)
                         change.consume()
                     }
                 }
