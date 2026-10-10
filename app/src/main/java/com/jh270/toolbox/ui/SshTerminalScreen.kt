@@ -91,6 +91,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import com.jh270.toolbox.ssh.TerminalEmulator
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -283,6 +286,35 @@ fun SshTerminalScreen(
                 val cols = (widthPx / charWidthPx).toInt().coerceIn(24, 240)
                 val rows = (heightPx / lineHeightPx).toInt().coerceIn(6, 100)
 
+                var lastSelectX by remember { mutableStateOf(0f) }
+                var autoScrollJob by remember { mutableStateOf<Job?>(null) }
+                var autoScrollDir by remember { mutableStateOf(0) }
+
+                fun stopAutoScroll() {
+                    autoScrollJob?.cancel()
+                    autoScrollJob = null
+                    autoScrollDir = 0
+                }
+
+                fun runAutoScroll(direction: Int) {
+                    if (autoScrollJob?.isActive == true && autoScrollDir == direction) return
+                    autoScrollJob?.cancel()
+                    autoScrollDir = direction
+                    autoScrollJob = scope.launch {
+                        while (isActive) {
+                            if (direction < 0 && !listState.canScrollBackward) break
+                            if (direction > 0 && !listState.canScrollForward) break
+                            listState.scroll { scrollBy(direction * lineHeightPx) }
+                            val info = listState.layoutInfo
+                            val target = if (direction < 0) info.visibleItemsInfo.firstOrNull() else info.visibleItemsInfo.lastOrNull()
+                            if (target != null) {
+                                focus = TextPoint(target.index, columnAt(lastSelectX, charWidthPx, linePlain(target.index).length))
+                            }
+                            delay(60)
+                        }
+                    }
+                }
+
                 LaunchedEffect(cols) {
                     viewModel.onTerminalSizeChanged(cols, rows)
                 }
@@ -319,15 +351,28 @@ fun SshTerminalScreen(
                                     }
                                 },
                                 onLongPress = { x ->
+                                    lastSelectX = x
                                     val col = columnAt(x, charWidthPx, text.length)
                                     val word = wordBounds(text, col)
                                     anchor = TextPoint(index, word.first)
                                     focus = TextPoint(index, word.second)
                                 },
-                                onDragSelect = { x, dy ->
-                                    val targetIndex = (index + (dy / lineHeightPx).roundToInt()).coerceIn(0, uiState.terminalLines.size - 1)
+                                onDragSelect = { x, yLocal ->
+                                    lastSelectX = x
+                                    val info = listState.layoutInfo
+                                    val itemInfo = info.visibleItemsInfo.find { it.index == index }
+                                    val pointerY = (itemInfo?.offset?.toFloat() ?: 0f) + yLocal
+                                    val target = info.visibleItemsInfo.firstOrNull { pointerY >= it.offset && pointerY < it.offset + it.size }
+                                    val targetIndex = target?.index ?: index
                                     focus = TextPoint(targetIndex, columnAt(x, charWidthPx, linePlain(targetIndex).length))
-                                }
+                                    val edge = lineHeightPx
+                                    when {
+                                        pointerY < edge -> runAutoScroll(-1)
+                                        pointerY > heightPx - edge -> runAutoScroll(1)
+                                        else -> stopAutoScroll()
+                                    }
+                                },
+                                onDragEnd = { stopAutoScroll() }
                             )
                         }
                     }
@@ -545,7 +590,8 @@ private fun TerminalLineText(
     terminalBackground: Color,
     onPress: () -> Unit,
     onLongPress: (Float) -> Unit,
-    onDragSelect: (Float, Float) -> Unit
+    onDragSelect: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit
 ) {
     val plainFg = readableForeground(terminalBackground)
     val annotated = remember(line, selection, selectionColor, terminalBackground) {
@@ -616,9 +662,10 @@ private fun TerminalLineText(
                     if (longPress == null) {
                         onLongPress(start.x)
                         drag(down.id) { change ->
-                            onDragSelect(change.position.x, change.position.y - start.y)
+                            onDragSelect(change.position.x, change.position.y)
                             change.consume()
                         }
+                        onDragEnd()
                     } else if (longPress) {
                         onPress()
                     }
