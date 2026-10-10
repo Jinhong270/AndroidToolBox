@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -287,7 +288,14 @@ fun SshTerminalScreen(
                 }
 
                 val pair = orderedSelection()
-                Box(modifier = Modifier.fillMaxSize().background(termBg)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(termBg)
+                        .pointerInput(Unit) {
+                            detectTapGestures { clearSelection() }
+                        }
+                ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize()
@@ -302,13 +310,12 @@ fun SshTerminalScreen(
                                 selection = range,
                                 selectionColor = selectionColor,
                                 terminalBackground = termBg,
-                                onPress = { x ->
-                                    val col = columnAt(x, charWidthPx, text.length)
-                                    if (anchor == null) {
+                                onPress = {
+                                    if (anchor != null) {
+                                        clearSelection()
+                                    } else {
                                         focusRequester.requestFocus()
                                         keyboardController?.show()
-                                    } else {
-                                        focus = TextPoint(index, col)
                                     }
                                 },
                                 onLongPress = { x ->
@@ -536,7 +543,7 @@ private fun TerminalLineText(
     selection: IntRange?,
     selectionColor: Color,
     terminalBackground: Color,
-    onPress: (Float) -> Unit,
+    onPress: () -> Unit,
     onLongPress: (Float) -> Unit,
     onDragSelect: (Float, Float) -> Unit
 ) {
@@ -613,7 +620,7 @@ private fun TerminalLineText(
                             change.consume()
                         }
                     } else if (longPress) {
-                        onPress(start.x)
+                        onPress()
                     }
                 }
             }
