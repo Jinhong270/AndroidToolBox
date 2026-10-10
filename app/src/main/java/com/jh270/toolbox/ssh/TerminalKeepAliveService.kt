@@ -20,10 +20,12 @@ class TerminalKeepAliveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
-        val wake = intent?.action == ACTION_WAKE
-        if (wake) {
-            acquireWakeLock()
-            openBatterySettings()
+        when (intent?.action) {
+            ACTION_WAKE -> {
+                acquireWakeLock()
+                openBatterySettings()
+            }
+            ACTION_RELEASE -> releaseWakeLock()
         }
         val notification = buildNotification(wakeLockHeld())
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -60,15 +62,25 @@ class TerminalKeepAliveService : Service() {
             Intent(this, TerminalKeepAliveService::class.java).setAction(ACTION_WAKE),
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val release = PendingIntent.getService(
+            this,
+            3,
+            Intent(this, TerminalKeepAliveService::class.java).setAction(ACTION_RELEASE),
+            PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
+        )
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setContentTitle("SSH 终端")
             .setContentText(if (wakeHeld) "Wake Lock 已开启，会话保持运行" else "会话仍在后台运行")
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(0, "Wake Lock", wake)
-            .build()
+        if (wakeHeld) {
+            builder.addAction(0, "Release Wake Lock", release)
+        } else {
+            builder.addAction(0, "Wake Lock", wake)
+        }
+        return builder.build()
     }
 
     private fun acquireWakeLock() {
@@ -98,6 +110,7 @@ class TerminalKeepAliveService : Service() {
         private const val CHANNEL_ID = "toolbox_terminal"
         private const val NOTIFICATION_ID = 2701
         private const val ACTION_WAKE = "com.jh270.toolbox.action.WAKE_LOCK"
+        private const val ACTION_RELEASE = "com.jh270.toolbox.action.RELEASE_WAKE_LOCK"
         private var wakeLock: PowerManager.WakeLock? = null
 
         fun releaseWakeLock() {
