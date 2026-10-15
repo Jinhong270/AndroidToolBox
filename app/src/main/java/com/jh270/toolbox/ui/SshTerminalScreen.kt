@@ -409,7 +409,8 @@ fun SshTerminalScreen(
                             onCopy = {
                                 copyText(selectedText())
                                 clearSelection()
-                            }
+                            },
+                            onPaste = ::pasteClipboard
                         )
                     }
 
@@ -451,15 +452,6 @@ fun SshTerminalScreen(
                     viewModel = viewModel,
                     uiState = uiState,
                     onBackspace = ::sendBackspace,
-                    onCopy = {
-                        if (anchor != null) {
-                            copyText(selectedText())
-                            clearSelection()
-                        } else {
-                            Toast.makeText(context, "长按文字后再复制", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onPaste = ::pasteClipboard,
                     barColor = barBg,
                     keyColor = keyBg,
                     keyFgColor = keyFg,
@@ -689,11 +681,12 @@ private fun SelectionOverlay(
     onDragStart: (TextPoint) -> Unit,
     onDragEnd: (TextPoint) -> Unit,
     pointAt: (Offset) -> TextPoint?,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    onPaste: () -> Unit
 ) {
     if (start != null) {
         SelectionHandle(center = start, color = color, onMove = { pointAt(it)?.let(onDragStart) })
-        Box(
+        Row(
             modifier = Modifier
                 .offset {
                     val x = (start.x - 28.dp.toPx()).roundToInt().coerceAtLeast(4)
@@ -702,15 +695,28 @@ private fun SelectionOverlay(
                 }
                 .shadow(8.dp, RoundedCornerShape(10.dp))
                 .background(Color(0xFF111827), RoundedCornerShape(10.dp))
-                .clickable(onClick = onCopy)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 4.dp, vertical = 4.dp)
         ) {
-            Text(text = "复制", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            PopupAction("复制", onCopy)
+            PopupAction("粘贴", onPaste)
         }
     }
     if (end != null) {
         SelectionHandle(center = end, color = color, onMove = { pointAt(it)?.let(onDragEnd) })
     }
+}
+
+@Composable
+private fun PopupAction(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = Color.White,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    )
 }
 
 @Composable
@@ -773,8 +779,6 @@ private fun TerminalKeyBar(
     viewModel: SshViewModel,
     uiState: SshUiState,
     onBackspace: () -> Unit,
-    onCopy: () -> Unit,
-    onPaste: () -> Unit,
     barColor: Color,
     keyColor: Color,
     keyFgColor: Color,
@@ -789,12 +793,10 @@ private fun TerminalKeyBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TerminalKey("ESC", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B") }
-        TerminalKey("TAB", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\t") }
-        TerminalKey("COPY", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onCopy)
-        TerminalKey("PASTE", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onPaste)
+        TerminalKey("Esc", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B") }
+        TerminalKey("Tab", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\t") }
         TerminalKey(
-            if (uiState.isCtrlActive) "CTRL ON" else "CTRL",
+            if (uiState.isCtrlActive) "Ctrl ON" else "Ctrl",
             active = uiState.isCtrlActive,
             keyColor = keyColor,
             keyFgColor = keyFgColor,
@@ -802,13 +804,13 @@ private fun TerminalKeyBar(
         ) {
             viewModel.toggleCtrlState()
         }
-        TerminalKey("DEL", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onBackspace)
+        TerminalKey("Del", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onBackspace)
         TerminalKey("←", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[D") }
         TerminalKey("↑", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[A") }
         TerminalKey("↓", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[B") }
         TerminalKey("→", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[C") }
-        TerminalKey("HOME", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[H") }
-        TerminalKey("END", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[F") }
+        TerminalKey("Home", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[H") }
+        TerminalKey("End", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[F") }
     }
 }
 
