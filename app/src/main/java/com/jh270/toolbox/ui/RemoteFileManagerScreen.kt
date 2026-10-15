@@ -210,7 +210,13 @@ fun RemoteFileManagerScreen(
                         OutlinedTextField(
                             value = uiState.searchQuery,
                             onValueChange = { viewModel.updateSearchQuery(it) },
-                            placeholder = { Text("搜索当前目录") },
+                            placeholder = {
+                                Text(
+                                    text = "搜索",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
                             shape = MaterialTheme.shapes.small,
                             leadingIcon = {
                                 Icon(imageVector = Icons.Default.Search, contentDescription = null)
@@ -222,7 +228,9 @@ fun RemoteFileManagerScreen(
                                     }
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
                             singleLine = true
                         )
 
