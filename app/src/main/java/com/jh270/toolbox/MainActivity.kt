@@ -21,7 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,11 +33,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jh270.toolbox.data.AppSettings
 import com.jh270.toolbox.ui.AppScreen
 import com.jh270.toolbox.ui.RemoteFileManagerScreen
+import com.jh270.toolbox.ui.SettingsScreen
 import com.jh270.toolbox.ui.SshConnectionScreen
 import com.jh270.toolbox.ui.SshTerminalScreen
 import com.jh270.toolbox.ui.SshViewModel
 import com.jh270.toolbox.ui.ToolBoxHomeScreen
-import com.jh270.toolbox.ui.UserAgreementDialog
+import com.jh270.toolbox.ui.UserAgreementGate
 import com.jh270.toolbox.ui.theme.ToolBoxTheme
 
 class MainActivity : ComponentActivity() {
@@ -57,9 +58,10 @@ class MainActivity : ComponentActivity() {
                     val notificationPermission = rememberLauncherForActivityResult(
                         ActivityResultContracts.RequestPermission()
                     ) { }
-                    var showAgreement by remember {
-                        mutableStateOf(!AppSettings.agreementAccepted(context))
+                    var agreementAccepted by rememberSaveable {
+                        mutableStateOf(AppSettings.agreementAccepted(context))
                     }
+                    var showSettings by rememberSaveable { mutableStateOf(false) }
 
                     LaunchedEffect(uiState.terminalSessionStarted) {
                         if (!uiState.terminalSessionStarted || Build.VERSION.SDK_INT < 33) return@LaunchedEffect
@@ -80,59 +82,61 @@ class MainActivity : ComponentActivity() {
                         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                     }
 
-                    if (showAgreement) {
-                        UserAgreementDialog(
+                    if (!agreementAccepted) {
+                        UserAgreementGate(
                             onAccept = {
                                 AppSettings.setAgreementAccepted(context)
-                                showAgreement = false
-                            }
-                        ) {
-                            finish()
+                                agreementAccepted = true
+                            },
+                            onReject = { finish() }
+                        )
+                    } else if (showSettings) {
+                        SettingsScreen(
+                            viewModel = sshViewModel,
+                            uiState = uiState,
+                            onBack = { showSettings = false }
+                        )
+                    } else {
+                        val destination = when {
+                            uiState.currentScreen == AppScreen.HOME -> "home"
+                            uiState.showTerminalScreen -> "terminal"
+                            uiState.isConnected -> "files"
+                            else -> "connect"
                         }
-                    }
-
-                    val destination = when {
-                        uiState.currentScreen == AppScreen.HOME -> "home"
-                        uiState.showTerminalScreen -> "terminal"
-                        uiState.isConnected -> "files"
-                        else -> "connect"
-                    }
-                    AnimatedContent(
-                        targetState = destination,
-                        transitionSpec = {
-                            fadeIn(tween(180)) togetherWith fadeOut(tween(120))
-                        },
-                        label = "screen"
-                    ) { dest ->
-                        when (dest) {
-                            "home" -> {
-                                ToolBoxHomeScreen(
-                                    terminalBackground = uiState.terminalBackground,
-                                    terminalSelection = uiState.terminalSelection,
-                                    onTerminalBackground = sshViewModel::setTerminalBackground,
-                                    onTerminalSelection = sshViewModel::setTerminalSelection,
-                                    onSelectSshFileManager = {
-                                        sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
-                                    }
-                                )
-                            }
-                            "terminal" -> {
-                                SshTerminalScreen(
-                                    viewModel = sshViewModel,
-                                    uiState = uiState
-                                )
-                            }
-                            "files" -> {
-                                RemoteFileManagerScreen(
-                                    viewModel = sshViewModel,
-                                    uiState = uiState
-                                )
-                            }
-                            else -> {
-                                SshConnectionScreen(
-                                    viewModel = sshViewModel,
-                                    uiState = uiState
-                                )
+                        AnimatedContent(
+                            targetState = destination,
+                            transitionSpec = {
+                                fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+                            },
+                            label = "screen"
+                        ) { dest ->
+                            when (dest) {
+                                "home" -> {
+                                    ToolBoxHomeScreen(
+                                        onSelectSshFileManager = {
+                                            sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
+                                        },
+                                        onOpenSettings = { showSettings = true }
+                                    )
+                                }
+                                "terminal" -> {
+                                    SshTerminalScreen(
+                                        viewModel = sshViewModel,
+                                        uiState = uiState
+                                    )
+                                }
+                                "files" -> {
+                                    RemoteFileManagerScreen(
+                                        viewModel = sshViewModel,
+                                        uiState = uiState
+                                    )
+                                }
+                                else -> {
+                                    SshConnectionScreen(
+                                        viewModel = sshViewModel,
+                                        uiState = uiState
+                                    )
+                                }
                             }
                         }
                     }

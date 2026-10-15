@@ -1,6 +1,7 @@
 package com.jh270.toolbox.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -30,29 +30,27 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,7 +71,6 @@ import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteFileManagerScreen(
     viewModel: SshViewModel,
@@ -94,46 +91,27 @@ fun RemoteFileManagerScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "文件管理器",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = when (uiState.remotePlatform) {
-                                RemotePlatform.WINDOWS -> "Windows"
-                                RemotePlatform.UNIX -> "Linux"
-                                RemotePlatform.UNKNOWN -> "SSH"
-                            },
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.openTerminal() }) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "终端"
-                        )
-                    }
-                    IconButton(onClick = { viewModel.disconnect() }) {
-                        Icon(
-                            imageVector = Icons.Default.PowerOff,
-                            contentDescription = "断开",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ToolBoxScaffold(
+        title = "文件管理器",
+        subtitle = when (uiState.remotePlatform) {
+            RemotePlatform.WINDOWS -> "Windows 主机"
+            RemotePlatform.UNIX -> "Linux 主机"
+            RemotePlatform.UNKNOWN -> "SSH 主机"
+        },
+        actions = {
+            IconButton(onClick = { viewModel.openTerminal() }) {
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = "终端"
                 )
-            )
+            }
+            IconButton(onClick = { viewModel.disconnect() }) {
+                Icon(
+                    imageVector = Icons.Default.PowerOff,
+                    contentDescription = "断开",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -145,7 +123,7 @@ fun RemoteFileManagerScreen(
             if (uiState.backgroundTask != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -170,90 +148,99 @@ fun RemoteFileManagerScreen(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
-            Row(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                IconButton(
-                    onClick = { viewModel.navigateUp() },
-                    enabled = uiState.isInArchiveMode || !RemotePath.isRoot(uiState.currentPath)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "上级"
-                    )
-                }
-
-                OutlinedTextField(
-                    value = editingPath,
-                    onValueChange = { editingPath = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    label = { Text("路径") },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (!uiState.isInArchiveMode) {
-                                viewModel.loadDirectory(RemotePath.fromDisplayPath(editingPath, uiState.remotePlatform))
-                            }
-                        }
-                    )
-                )
-
-                IconButton(
-                    onClick = { viewModel.refreshDirectory() },
-                    enabled = !uiState.isLoadingFiles && !uiState.isLoadingArchiveEntries
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "刷新"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                OutlinedTextField(
-                    value = uiState.searchQuery,
-                    onValueChange = { viewModel.updateSearchQuery(it) },
-                    placeholder = { Text("搜索...") },
-                    leadingIcon = {
-                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                    },
-                    trailingIcon = {
-                        if (uiState.searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                Icon(imageVector = Icons.Default.Clear, contentDescription = "清除")
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-
-                if (!uiState.isInArchiveMode) {
-                    OutlinedButton(
-                        onClick = { viewModel.openCreateFolderDialog() },
-                        modifier = Modifier.height(52.dp)
+                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新文件夹")
+                        IconButton(
+                            onClick = { viewModel.navigateUp() },
+                            enabled = uiState.isInArchiveMode || !RemotePath.isRoot(uiState.currentPath)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = "上级"
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = editingPath,
+                            onValueChange = { editingPath = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = { Text("路径") },
+                            shape = MaterialTheme.shapes.small,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (!uiState.isInArchiveMode) {
+                                        viewModel.loadDirectory(RemotePath.fromDisplayPath(editingPath, uiState.remotePlatform))
+                                    }
+                                }
+                            )
+                        )
+
+                        IconButton(
+                            onClick = { viewModel.refreshDirectory() },
+                            enabled = !uiState.isLoadingFiles && !uiState.isLoadingArchiveEntries
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "刷新"
+                            )
+                        }
                     }
 
-                    OutlinedButton(
-                        onClick = { viewModel.openCreateFileDialog() },
-                        modifier = Modifier.height(52.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新文件")
+                        OutlinedTextField(
+                            value = uiState.searchQuery,
+                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            placeholder = { Text("搜索当前目录") },
+                            shape = MaterialTheme.shapes.small,
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                if (uiState.searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "清除")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        if (!uiState.isInArchiveMode) {
+                            OutlinedButton(
+                                onClick = { viewModel.openCreateFolderDialog() },
+                                modifier = Modifier.height(52.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新文件夹")
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.openCreateFileDialog() },
+                                modifier = Modifier.height(52.dp)
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新文件")
+                            }
+                        }
                     }
                 }
             }
@@ -261,19 +248,18 @@ fun RemoteFileManagerScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             if (uiState.fileFetchError != null || uiState.archiveError != null) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = MaterialTheme.shapes.medium
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "错误:",
+                            text = "读取失败",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = uiState.fileFetchError ?: uiState.archiveError ?: "",
                             color = MaterialTheme.colorScheme.onErrorContainer,
@@ -299,9 +285,13 @@ fun RemoteFileManagerScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("读取中...")
+                        CircularProgressIndicator(strokeWidth = 3.dp)
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "正在读取远程目录...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             } else {
@@ -320,10 +310,24 @@ fun RemoteFileManagerScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = if (uiState.searchQuery.isNotBlank()) "无匹配" else "空目录",
-                                color = MaterialTheme.colorScheme.outline
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = if (uiState.searchQuery.isNotBlank()) {
+                                        Icons.Default.SearchOff
+                                    } else {
+                                        Icons.Default.FolderOff
+                                    },
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(38.dp)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = if (uiState.searchQuery.isNotBlank()) "没有匹配的文件" else "这个目录是空的",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -460,16 +464,20 @@ fun RemoteFileRow(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(vertical = 3.dp)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = if (file.name == "..") null else onLongClick
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (file.isDirectory) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-            else MaterialTheme.colorScheme.surface
+            containerColor = if (file.isDirectory) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            }
         ),
-        shape = RoundedCornerShape(12.dp)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.medium
     ) {
         Row(
             modifier = Modifier
