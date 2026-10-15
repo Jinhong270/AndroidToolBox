@@ -98,13 +98,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
-private val TerminalBg = Color(0xFF0A0E14)
-private val TerminalBar = Color(0xFF11161F)
-private val TerminalFg = Color(0xFFE6EDF3)
-private val TerminalDim = Color(0xFF6E7681)
-private val TerminalAccent = Color(0xFF38BDF8)
-private val TerminalKeyBg = Color(0xFF1B2330)
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SshTerminalScreen(
@@ -125,6 +118,12 @@ fun SshTerminalScreen(
     var focus by remember { mutableStateOf<TextPoint?>(null) }
     val termBg = Color(uiState.terminalBackground)
     val selectionColor = Color(uiState.terminalSelection)
+    val barBg = derivedBar(termBg)
+    val chromeFg = readableForeground(barBg)
+    val chromeDim = chromeFg.copy(alpha = 0.6f)
+    val keyBg = derivedBar(barBg)
+    val keyFg = readableForeground(keyBg)
+    val accent = if (luminance(termBg) > 0.5f) Color(0xFF0369A1) else Color(0xFF38BDF8)
     fun clearSelection() {
         anchor = null
         focus = null
@@ -207,7 +206,7 @@ fun SshTerminalScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = TerminalFg
+                            tint = chromeFg
                         )
                     }
                 },
@@ -225,12 +224,12 @@ fun SshTerminalScreen(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TerminalFg
+                                color = chromeFg
                             )
                             Text(
                                 text = "SSH Shell Terminal",
                                 fontSize = 10.sp,
-                                color = TerminalDim
+                                color = chromeDim
                             )
                         }
                     }
@@ -241,7 +240,7 @@ fun SshTerminalScreen(
                             text = "A-",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TerminalFg
+                            color = chromeFg
                         )
                     }
                     IconButton(onClick = { fontSize = (fontSize + 2f).coerceAtMost(24f) }) {
@@ -249,19 +248,19 @@ fun SshTerminalScreen(
                             text = "A+",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TerminalFg
+                            color = chromeFg
                         )
                     }
                     IconButton(onClick = { viewModel.clearTerminal() }) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
                             contentDescription = "清屏",
-                            tint = TerminalDim
+                            tint = chromeDim
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TerminalBar
+                    containerColor = barBg
                 )
             )
         }
@@ -425,7 +424,7 @@ fun SshTerminalScreen(
                                 }
                             },
                             shape = CircleShape,
-                            color = TerminalBar,
+                            color = barBg,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(12.dp)
@@ -433,7 +432,7 @@ fun SshTerminalScreen(
                             Icon(
                                 imageVector = Icons.Default.ArrowDownward,
                                 contentDescription = "回到底部",
-                                tint = TerminalAccent,
+                                tint = accent,
                                 modifier = Modifier.padding(10.dp)
                             )
                         }
@@ -442,7 +441,11 @@ fun SshTerminalScreen(
             }
 
             if (uiState.terminalClosed) {
-                TerminalClosedBar(onExit = { viewModel.closeTerminal() })
+                TerminalClosedBar(
+                    onExit = { viewModel.closeTerminal() },
+                    barColor = barBg,
+                    accentColor = accent
+                )
             } else {
                 TerminalKeyBar(
                     viewModel = viewModel,
@@ -456,7 +459,11 @@ fun SshTerminalScreen(
                             Toast.makeText(context, "长按文字后再复制", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onPaste = ::pasteClipboard
+                    onPaste = ::pasteClipboard,
+                    barColor = barBg,
+                    keyColor = keyBg,
+                    keyFgColor = keyFg,
+                    accentColor = accent
                 )
             }
 
@@ -733,10 +740,14 @@ private fun SelectionHandle(
 }
 
 @Composable
-private fun TerminalClosedBar(onExit: () -> Unit) {
+private fun TerminalClosedBar(
+    onExit: () -> Unit,
+    barColor: Color,
+    accentColor: Color
+) {
     Surface(
         onClick = onExit,
-        color = TerminalBar,
+        color = barColor,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -751,7 +762,7 @@ private fun TerminalClosedBar(onExit: () -> Unit) {
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = TerminalAccent
+                color = accentColor
             )
         }
     }
@@ -763,31 +774,41 @@ private fun TerminalKeyBar(
     uiState: SshUiState,
     onBackspace: () -> Unit,
     onCopy: () -> Unit,
-    onPaste: () -> Unit
+    onPaste: () -> Unit,
+    barColor: Color,
+    keyColor: Color,
+    keyFgColor: Color,
+    accentColor: Color
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .background(TerminalBar)
+            .background(barColor)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TerminalKey("ESC") { viewModel.sendTerminalText("\u001B") }
-        TerminalKey("TAB") { viewModel.sendTerminalText("\t") }
-        TerminalKey("COPY", onClick = onCopy)
-        TerminalKey("PASTE", onClick = onPaste)
-        TerminalKey(if (uiState.isCtrlActive) "CTRL ON" else "CTRL", active = uiState.isCtrlActive) {
+        TerminalKey("ESC", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B") }
+        TerminalKey("TAB", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\t") }
+        TerminalKey("COPY", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onCopy)
+        TerminalKey("PASTE", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onPaste)
+        TerminalKey(
+            if (uiState.isCtrlActive) "CTRL ON" else "CTRL",
+            active = uiState.isCtrlActive,
+            keyColor = keyColor,
+            keyFgColor = keyFgColor,
+            accentColor = accentColor
+        ) {
             viewModel.toggleCtrlState()
         }
-        TerminalKey("DEL", onClick = onBackspace)
-        TerminalKey("←") { viewModel.sendTerminalText("\u001B[D") }
-        TerminalKey("↑") { viewModel.sendTerminalText("\u001B[A") }
-        TerminalKey("↓") { viewModel.sendTerminalText("\u001B[B") }
-        TerminalKey("→") { viewModel.sendTerminalText("\u001B[C") }
-        TerminalKey("HOME") { viewModel.sendTerminalText("\u001B[H") }
-        TerminalKey("END") { viewModel.sendTerminalText("\u001B[F") }
+        TerminalKey("DEL", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor, onClick = onBackspace)
+        TerminalKey("←", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[D") }
+        TerminalKey("↑", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[A") }
+        TerminalKey("↓", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[B") }
+        TerminalKey("→", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[C") }
+        TerminalKey("HOME", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[H") }
+        TerminalKey("END", keyColor = keyColor, keyFgColor = keyFgColor, accentColor = accentColor) { viewModel.sendTerminalText("\u001B[F") }
     }
 }
 
@@ -795,19 +816,22 @@ private fun TerminalKeyBar(
 private fun TerminalKey(
     label: String,
     active: Boolean = false,
+    keyColor: Color,
+    keyFgColor: Color,
+    accentColor: Color,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(6.dp),
-        color = if (active) TerminalAccent else TerminalKeyBg
+        color = if (active) accentColor else keyColor
     ) {
         Text(
             text = label,
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = if (active) Color.Black else TerminalFg,
+            color = if (active) readableForeground(accentColor) else keyFgColor,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
@@ -868,9 +892,20 @@ private fun pointFromOffset(
     return TextPoint(item.index, columnAt(offset.x, charWidth, lineText(item.index).length))
 }
 
+private fun luminance(color: Color): Float =
+    0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+
 private fun readableForeground(background: Color): Color {
-    val luminance = (0.2126f * background.red) + (0.7152f * background.green) + (0.0722f * background.blue)
-    return if (luminance > 0.62f) Color(0xFF1C1917) else Color(0xFFF8FAFC)
+    return if (luminance(background) > 0.62f) Color(0xFF1C1917) else Color(0xFFF8FAFC)
+}
+
+private fun derivedBar(background: Color): Color {
+    val shift = if (luminance(background) > 0.5f) -0.07f else 0.07f
+    return Color(
+        (background.red + shift).coerceIn(0f, 1f),
+        (background.green + shift).coerceIn(0f, 1f),
+        (background.blue + shift).coerceIn(0f, 1f)
+    )
 }
 
 private fun committedText(value: TextFieldValue): String {
