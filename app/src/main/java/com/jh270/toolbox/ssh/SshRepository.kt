@@ -59,6 +59,12 @@ class SshRepository {
     @Volatile
     private var shellClosingLocally = false
 
+    @Volatile
+    private var shellSessionToken = 0
+
+    @Volatile
+    private var shellSessionEnded = false
+
     private val gate = Mutex()
     private var lastConfig: SshConfig? = null
     @Volatile
@@ -295,15 +301,17 @@ class SshRepository {
     }
 
     fun isShellRunning(): Boolean {
-        return shellChannel?.isConnected == true && shellOutputStream != null
+        return !shellSessionEnded && shellChannel?.isConnected == true && shellOutputStream != null
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
     suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = remoteCall {
         runCatching {
             val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val token = ++shellSessionToken
             closeShellSessionInternal()
             shellClosingLocally = false
+            shellSessionEnded = false
 
             val channel = sess.openChannel("shell") as ChannelShell
             channel.setPty(true)
@@ -330,24 +338,15 @@ class SshRepository {
             }
 
             shellReadingThread = Thread {
-                val buffer = ByteArray(4096)
-                var eof = false
-                try {
-                    while (shellChannel?.isConnected == true) {
-                        val read = inStream.read(buffer)
-                        if (read < 0) {
-                            eof = true
-                            break
-                        }
-                        if (read > 0) {
-                            val text = decodeShell(buffer, read)
-                            if (text.isNotEmpty()) onOutput(text)
-                        }
-                    }
-                } catch (_: Exception) {}
-                if (eof && !shellClosingLocally) {
-                    onExit()
-                }
+                val ended = readShellLoop(
+                    read = { buffer -> inStream.read(buffer) },
+                    isChannelAlive = { !channel.isClosed && channel.isConnected },
+                    decode = { buffer, count -> decodeShell(buffer, count) },
+                    onOutput = onOutput
+                )
+                if (!shouldReportShellExit(ended, token, shellSessionToken, shellClosingLocally)) return@Thread
+                shellSessionEnded = true
+                onExit()
             }.apply { start() }
         }
     }

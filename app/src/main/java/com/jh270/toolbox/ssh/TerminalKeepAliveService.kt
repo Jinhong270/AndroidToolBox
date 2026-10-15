@@ -19,8 +19,12 @@ class TerminalKeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         createChannel()
-        when (intent?.action) {
+        when (intent.action) {
             ACTION_WAKE -> {
                 acquireWakeLock()
                 openBatterySettings()
@@ -33,11 +37,12 @@ class TerminalKeepAliveService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         releaseWakeLock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 

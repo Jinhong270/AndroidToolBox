@@ -855,11 +855,18 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         shellStartJob = viewModelScope.launch {
-            repository.startShellSession(cols, rows, { chunk ->
+            val started = repository.startShellSession(cols, rows, { chunk ->
                 feedTerminalOutput(chunk)
             }) {
                 stopKeepAlive()
                 _uiState.update { it.copy(terminalClosed = true, isCtrlActive = false) }
+            }
+            if (started.isFailure) {
+                stopKeepAlive()
+                val reason = started.exceptionOrNull()?.message ?: "终端会话启动失败"
+                feedTerminalOutput("$reason\r\n")
+                _uiState.update { it.copy(terminalClosed = true, isCtrlActive = false) }
+                return@launch
             }
             startKeepAlive()
             val initial = uiState.value.pendingInitialCommand
