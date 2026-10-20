@@ -94,10 +94,9 @@ fun SshTerminalScreen(
     var focus by remember { mutableStateOf<TextPoint?>(null) }
     val termBg = Color(uiState.terminalBackground)
     val selectionColor = Color(uiState.terminalSelection)
-    val barBg = derivedBar(termBg)
-    val chromeFg = readableForeground(barBg)
+    val chromeFg = readableForeground(termBg)
     val chromeDim = chromeFg.copy(alpha = 0.6f)
-    val keyBg = derivedBar(barBg)
+    val keyBg = derivedBar(termBg)
     val keyFg = readableForeground(keyBg)
     val accent = if (luminance(termBg) > 0.5f) Color(0xFF0369A1) else Color(0xFF38BDF8)
     fun clearSelection() {
@@ -236,7 +235,11 @@ fun SshTerminalScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = barBg
+                    containerColor = termBg,
+                    scrolledContainerColor = termBg,
+                    navigationIconContentColor = chromeFg,
+                    titleContentColor = chromeFg,
+                    actionIconContentColor = chromeFg
                 )
             )
         }
@@ -401,7 +404,7 @@ fun SshTerminalScreen(
                                 }
                             },
                             shape = CircleShape,
-                            color = barBg,
+                            color = keyBg,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(12.dp)
@@ -420,7 +423,7 @@ fun SshTerminalScreen(
             if (uiState.terminalClosed) {
                 TerminalClosedBar(
                     onExit = { viewModel.closeTerminal() },
-                    barColor = barBg,
+                    barColor = termBg,
                     accentColor = accent
                 )
             } else {
@@ -428,7 +431,7 @@ fun SshTerminalScreen(
                     viewModel = viewModel,
                     uiState = uiState,
                     onBackspace = ::sendBackspace,
-                    barColor = barBg,
+                    barColor = termBg,
                     keyColor = keyBg,
                     keyFgColor = keyFg,
                     accentColor = accent
