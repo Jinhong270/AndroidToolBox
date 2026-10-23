@@ -18,14 +18,13 @@ internal fun encodeEditableText(text: String, charsetName: String): ByteArray {
     }
 }
 
-internal fun decodeEditableText(bytes: ByteArray, windows: Boolean): DecodedText? {
+internal fun decodeEditableText(bytes: ByteArray, windows: Boolean): DecodedText {
     if (bytes.isEmpty()) return DecodedText("", "UTF-8")
     val utf16 = utf16Charset(bytes)
     if (utf16 != null) {
         val text = String(bytes, charset(utf16)).removePrefix("\uFEFF")
         return DecodedText(text, utf16)
     }
-    if (bytes.any { it == 0.toByte() }) return null
     val utf8 = try {
         val decoder = Charsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
@@ -36,6 +35,9 @@ internal fun decodeEditableText(bytes: ByteArray, windows: Boolean): DecodedText
     }
     if (utf8 != null && !windows) return DecodedText(utf8, "UTF-8")
     if (utf8 != null && windows && '\uFFFD' !in utf8) return DecodedText(utf8, "UTF-8")
+    if (bytes.any { it == 0.toByte() }) {
+        return DecodedText(String(bytes, Charsets.ISO_8859_1), "ISO-8859-1")
+    }
     return try {
         DecodedText(String(bytes, charset("GBK")), "GBK")
     } catch (_: Exception) {
@@ -55,44 +57,19 @@ internal fun editableFilePreview(
     truncated: Boolean,
 ): FilePreview {
     val decoded = decodeEditableText(bytes, windows)
-    if (decoded != null) {
-        val over = decoded.text.length > TEXT_EDIT_LIMIT
-        val text = if (over) decoded.text.take(TEXT_EDIT_LIMIT) else decoded.text
-        return FilePreview(
-            name = name,
-            path = path,
-            size = size,
-            permissions = permissions,
-            modifiedTime = modifiedTime,
-            content = text,
-            charsetName = decoded.charsetName,
-            fileType = fileType,
-            editable = true,
-            truncated = truncated || over,
-        )
-    }
-    if (fileType == FileType.IMAGE) {
-        return FilePreview(
-            name = name,
-            path = path,
-            size = size,
-            permissions = permissions,
-            modifiedTime = modifiedTime,
-            imageData = bytes,
-            fileType = FileType.IMAGE,
-            editable = false,
-            truncated = truncated,
-        )
-    }
+    val over = decoded.text.length > TEXT_EDIT_LIMIT
+    val text = if (over) decoded.text.take(TEXT_EDIT_LIMIT) else decoded.text
     return FilePreview(
         name = name,
         path = path,
         size = size,
         permissions = permissions,
         modifiedTime = modifiedTime,
+        content = text,
+        charsetName = decoded.charsetName,
         fileType = fileType,
-        editable = false,
-        truncated = truncated,
+        editable = true,
+        truncated = truncated || over,
     )
 }
 

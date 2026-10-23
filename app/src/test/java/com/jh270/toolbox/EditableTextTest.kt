@@ -5,9 +5,7 @@ import com.jh270.toolbox.ssh.decodeEditableText
 import com.jh270.toolbox.ssh.encodeEditableText
 import com.jh270.toolbox.ssh.editableFilePreview
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,12 +44,11 @@ class EditableTextTest {
             truncated = false,
         )
         assertTrue(preview.editable)
-        assertNull(preview.imageData)
         assertEquals("key=value\n", preview.content)
     }
 
     @Test
-    fun binaryImageStaysViewOnly() {
+    fun binaryBytesOpenAsText() {
         val bytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x00, 0x01)
         val preview = editableFilePreview(
             name = "a.png",
@@ -64,13 +61,18 @@ class EditableTextTest {
             windows = false,
             truncated = false,
         )
-        assertFalse(preview.editable)
-        assertNotNull(preview.imageData)
+        assertTrue(preview.editable)
+        assertEquals("ISO-8859-1", preview.charsetName)
+        assertNotNull(preview.content)
+        val encoded = encodeEditableText(preview.content!!, preview.charsetName)
+        assertTrue(bytes.contentEquals(encoded))
     }
 
     @Test
-    fun nulBytesAreNotText() {
-        assertNull(decodeEditableText(byteArrayOf(0x41, 0x00, 0x42), false))
+    fun nulBytesOpenAsUtf8() {
+        val decoded = decodeEditableText(byteArrayOf(0x41, 0x00, 0x42), false)
+        assertEquals("UTF-8", decoded.charsetName)
+        assertEquals("A\u0000B", decoded.text)
     }
 
     @Test

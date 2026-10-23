@@ -512,7 +512,7 @@ class SshRepository {
                 file.fileType
             }
 
-            val readLimit = if (fileType == FileType.IMAGE) maxBytes else TEXT_EDIT_LIMIT
+            val readLimit = TEXT_EDIT_LIMIT.coerceAtMost(maxBytes)
             val outputStream = ByteArrayOutputStream()
             val inputStream = channel.get(file.path)
 
@@ -624,7 +624,7 @@ class SshRepository {
             val bytes = outputStream.toByteArray()
             val innerName = entryPath.trimEnd('/').substringAfterLast('/')
             val innerType = determineFileType(innerName, false)
-            val limit = if (innerType == FileType.IMAGE) 5242880 else TEXT_EDIT_LIMIT
+            val limit = TEXT_EDIT_LIMIT
             val truncated = bytes.size > limit
             val slice = if (truncated) bytes.copyOf(limit) else bytes
             editableFilePreview(
