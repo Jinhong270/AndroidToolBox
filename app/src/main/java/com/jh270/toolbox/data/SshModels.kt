@@ -76,6 +76,9 @@ data class FilePreview(
     val imageData: ByteArray? = null,
     val fileType: FileType,
     val errorMessage: String? = null,
+    val charsetName: String = "UTF-8",
+    val editable: Boolean = false,
+    val truncated: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -94,8 +97,12 @@ data class FilePreview(
             if (!imageData.contentEquals(other.imageData)) return false
         } else if (other.imageData != null) return false
         if (fileType != other.fileType) return false
+        if (errorMessage != other.errorMessage) return false
+        if (charsetName != other.charsetName) return false
+        if (editable != other.editable) return false
+        if (truncated != other.truncated) return false
 
-        return errorMessage == other.errorMessage
+        return true
     }
 
     override fun hashCode(): Int {
@@ -107,7 +114,10 @@ data class FilePreview(
         result = (31 * result) + (content?.hashCode() ?: 0)
         result = (31 * result) + (imageData?.contentHashCode() ?: 0)
         result = (31 * result) + fileType.hashCode()
-        result = (31 * result) + errorMessage.hashCode()
+        result = (31 * result) + (errorMessage?.hashCode() ?: 0)
+        result = (31 * result) + charsetName.hashCode()
+        result = (31 * result) + editable.hashCode()
+        result = (31 * result) + truncated.hashCode()
         return result
     }
 }

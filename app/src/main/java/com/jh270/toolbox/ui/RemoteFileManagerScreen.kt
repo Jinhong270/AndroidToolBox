@@ -384,13 +384,14 @@ fun RemoteFileManagerScreen(
     }
 
     if (uiState.selectedFilePreview != null || uiState.isPreviewLoading || uiState.previewError != null) {
-        FilePreviewDialog(
+        FileEditorScreen(
             filePreview = uiState.selectedFilePreview,
             isLoading = uiState.isPreviewLoading,
             errorMessage = uiState.previewError,
             isSaving = uiState.isSavingFile,
             saveSuccessMessage = uiState.saveSuccessMessage,
             saveErrorMessage = uiState.saveErrorMessage,
+            allowSave = !uiState.isInArchiveMode,
             onSaveContent = { path, content ->
                 viewModel.saveFileContent(path, content)
             },
