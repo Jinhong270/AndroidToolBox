@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -103,12 +104,25 @@ private fun TerminalKey(
         color = if (active) accentColor else keyColor
     ) {
         Text(
-            text = label,
+            text = terminalKeyLabel(label),
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = if (active) readableForeground(accentColor) else keyFgColor,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
+}
+
+internal fun terminalKeyLabel(raw: String): String {
+    val prefixes = listOf("ESC", "TAB", "CTRL", "DEL", "HOME", "END")
+    for (prefix in prefixes) {
+        if (raw.startsWith(prefix) && raw.length > prefix.length && raw[prefix.length].isUpperCase()) {
+            return raw.removePrefix(prefix)
+        }
+    }
+    return raw
 }
