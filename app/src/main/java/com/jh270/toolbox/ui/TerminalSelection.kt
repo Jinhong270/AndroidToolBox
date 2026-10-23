@@ -259,3 +259,29 @@ internal fun pointFromOffset(
     } ?: return null
     return TextPoint(item.index, columnAt(offset.x, charWidth, lineText(item.index).length))
 }
+
+internal fun terminalLinePlain(lines: List<TerminalEmulator.TerminalLine>, index: Int): String {
+    val line = lines.getOrNull(index) ?: return ""
+    return line.runs.joinToString("") { it.text }.trimEnd()
+}
+
+internal fun orderedSelection(anchor: TextPoint?, focus: TextPoint?): Pair<TextPoint, TextPoint>? {
+    val start = anchor ?: return null
+    val end = focus ?: return null
+    return if (start.line < end.line || (start.line == end.line && start.col <= end.col)) start to end else end to start
+}
+
+internal fun selectedTerminalText(
+    lines: List<TerminalEmulator.TerminalLine>,
+    anchor: TextPoint?,
+    focus: TextPoint?
+): String {
+    val pair = orderedSelection(anchor, focus) ?: return ""
+    val (start, end) = pair
+    return (start.line..end.line).joinToString("\n") { index ->
+        val text = terminalLinePlain(lines, index)
+        val from = if (index == start.line) start.col.coerceIn(0, text.length) else 0
+        val toExclusive = if (index == end.line) (end.col + 1).coerceIn(0, text.length) else text.length
+        if (from < toExclusive) text.substring(from, toExclusive) else ""
+    }
+}
