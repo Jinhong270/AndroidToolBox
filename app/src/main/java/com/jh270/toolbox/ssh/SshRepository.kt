@@ -512,20 +512,23 @@ class SshRepository {
                 file.fileType
             }
 
-            val readLimit = if (fileType == FileType.TEXT || fileType == FileType.EXECUTABLE) 204800 else maxBytes
+            val readLimit = if (fileType == FileType.IMAGE) maxBytes else TEXT_EDIT_LIMIT
             val outputStream = ByteArrayOutputStream()
             val inputStream = channel.get(file.path)
 
             val buffer = ByteArray(4096)
             var bytesReadTotal = 0
             var read: Int
+            var truncated = false
 
             while (inputStream.read(buffer).also { read = it } != -1) {
                 if (bytesReadTotal + read > readLimit) {
                     val allowed = readLimit - bytesReadTotal
                     if (allowed > 0) {
                         outputStream.write(buffer, 0, allowed)
+                        bytesReadTotal += allowed
                     }
+                    truncated = true
                     break
                 } else {
                     outputStream.write(buffer, 0, read)
@@ -535,56 +538,18 @@ class SshRepository {
             inputStream.close()
 
             val bytes = outputStream.toByteArray()
-
-            when (fileType) {
-                FileType.IMAGE -> {
-                    FilePreview(
-                        name = file.name,
-                        path = file.path,
-                        size = file.size,
-                        permissions = file.permissions,
-                        modifiedTime = file.modifiedTime,
-                        imageData = bytes,
-                        fileType = FileType.IMAGE
-                    )
-                }
-                FileType.TEXT, FileType.EXECUTABLE -> {
-                    val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
-                    FilePreview(
-                        name = file.name,
-                        path = file.path,
-                        size = file.size,
-                        permissions = file.permissions,
-                        modifiedTime = file.modifiedTime,
-                        content = text,
-                        fileType = fileType
-                    )
-                }
-                else -> {
-                    val isBinary = isBinaryContent(bytes)
-                    if (isBinary) {
-                        FilePreview(
-                            name = file.name,
-                            path = file.path,
-                            size = file.size,
-                            permissions = file.permissions,
-                            modifiedTime = file.modifiedTime,
-                            fileType = fileType
-                        )
-                    } else {
-                        val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
-                        FilePreview(
-                            name = file.name,
-                            path = file.path,
-                            size = file.size,
-                            permissions = file.permissions,
-                            modifiedTime = file.modifiedTime,
-                            content = text,
-                            fileType = fileType
-                        )
-                    }
-                }
-            }
+            if (file.size > bytes.size) truncated = true
+            editableFilePreview(
+                name = file.name,
+                path = file.path,
+                size = file.size,
+                permissions = file.permissions,
+                modifiedTime = file.modifiedTime,
+                bytes = bytes,
+                fileType = fileType,
+                windows = remotePlatform == RemotePlatform.WINDOWS,
+                truncated = truncated,
+            )
         }
     }
 
@@ -659,48 +624,27 @@ class SshRepository {
             val bytes = outputStream.toByteArray()
             val innerName = entryPath.trimEnd('/').substringAfterLast('/')
             val innerType = determineFileType(innerName, false)
-
-            if (innerType == FileType.IMAGE) {
-                FilePreview(
-                    name = innerName,
-                    path = "${archiveFile.name}/$entryPath",
-                    size = bytes.size.toLong(),
-                    permissions = "-rw-r--r--",
-                    modifiedTime = System.currentTimeMillis(),
-                    imageData = bytes,
-                    fileType = FileType.IMAGE
-                )
-            } else {
-                val isBin = isBinaryContent(bytes)
-                if (isBin) {
-                    FilePreview(
-                        name = innerName,
-                        path = "${archiveFile.name}/$entryPath",
-                        size = bytes.size.toLong(),
-                        permissions = "-rw-r--r--",
-                        modifiedTime = System.currentTimeMillis(),
-                        fileType = FileType.BINARY
-                    )
-                } else {
-                    val text = decodeBytes(bytes, remotePlatform == RemotePlatform.WINDOWS)
-                    FilePreview(
-                        name = innerName,
-                        path = "${archiveFile.name}/$entryPath",
-                        size = bytes.size.toLong(),
-                        permissions = "-rw-r--r--",
-                        modifiedTime = System.currentTimeMillis(),
-                        content = text,
-                        fileType = FileType.TEXT
-                    )
-                }
-            }
+            val limit = if (innerType == FileType.IMAGE) 5242880 else TEXT_EDIT_LIMIT
+            val truncated = bytes.size > limit
+            val slice = if (truncated) bytes.copyOf(limit) else bytes
+            editableFilePreview(
+                name = innerName,
+                path = "${archiveFile.name}/$entryPath",
+                size = bytes.size.toLong(),
+                permissions = "-rw-r--r--",
+                modifiedTime = System.currentTimeMillis(),
+                bytes = slice,
+                fileType = innerType,
+                windows = remotePlatform == RemotePlatform.WINDOWS,
+                truncated = truncated,
+            )
         }
     }
 
-    suspend fun saveFileContent(path: String, content: String): Result<Unit> = remoteCall {
+    suspend fun saveFileContent(path: String, content: String, charsetName: String = "UTF-8"): Result<Unit> = remoteCall {
         runCatching {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
-            val bytes = content.toByteArray(Charsets.UTF_8)
+            val bytes = encodeEditableText(content, charsetName)
             val inputStream = ByteArrayInputStream(bytes)
             channel.put(inputStream, path, ChannelSftp.OVERWRITE)
         }
@@ -1666,17 +1610,6 @@ class SshRepository {
             "sh", "rc", "bash", "bin", "exe", "so", "dll", "deb", "apk", "pl" -> FileType.EXECUTABLE
             else -> FileType.UNKNOWN
         }
-    }
-
-    private fun isBinaryContent(bytes: ByteArray): Boolean {
-        if (bytes.isEmpty()) return false
-        var nullCount = 0
-        for (b in bytes) {
-            if (b == 0.toByte()) {
-                nullCount++
-            }
-        }
-        return nullCount > 0
     }
 
     private fun stripAnsiCodes(text: String): String {

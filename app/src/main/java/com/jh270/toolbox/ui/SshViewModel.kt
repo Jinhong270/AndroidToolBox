@@ -733,7 +733,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     fun saveFileContent(path: String, newContent: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSavingFile = true, saveSuccessMessage = null, saveErrorMessage = null) }
-            val result = repository.saveFileContent(path, newContent)
+            val charsetName = _uiState.value.selectedFilePreview?.charsetName ?: "UTF-8"
+            val result = repository.saveFileContent(path, newContent, charsetName)
             result.onSuccess {
                 _uiState.update {
                     val updatedPreview = it.selectedFilePreview?.copy(content = newContent)
