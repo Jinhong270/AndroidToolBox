@@ -3,12 +3,11 @@ package com.jh270.toolbox.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,8 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,24 +46,20 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jh270.toolbox.data.FilePreview
-import com.jh270.toolbox.data.FileType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -111,8 +109,16 @@ fun FileEditorScreen(
     val numberColor = MaterialTheme.colorScheme.secondary
     val keywordColor = MaterialTheme.colorScheme.primary
     val highlight = remember(commentColor, stringColor, numberColor, keywordColor) {
-        SourceVisualTransformation(commentColor, stringColor, numberColor, keywordColor)
+        EditorVisualTransformation(commentColor, stringColor, numberColor, keywordColor)
     }
+    val editorStyle = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 13.sp,
+        lineHeight = 20.sp,
+        color = MaterialTheme.colorScheme.onSurface,
+        fontWeight = FontWeight.Normal
+    )
+    val gutterColor = MaterialTheme.colorScheme.outline
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -250,7 +256,24 @@ fun FileEditorScreen(
                             }
                         }
 
-                        errorMessage != null && filePreview == null -> {
+                        filePreview?.content != null -> {
+                            LineNumberEditor(
+                                text = editedText,
+                                onTextChange = { editedText = it },
+                                pathKey = bindKey,
+                                textStyle = editorStyle,
+                                gutterColor = gutterColor,
+                                visualTransformation = highlight,
+                                cursorColor = MaterialTheme.colorScheme.primary,
+                                focusRequester = focusRequester,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                            )
+                        }
+
+                        errorMessage != null -> {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -265,85 +288,6 @@ fun FileEditorScreen(
                                 )
                             }
                         }
-
-                        filePreview?.editable == true && filePreview.content != null -> {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            ) {
-                                BasicTextField(
-                                    value = editedText,
-                                    onValueChange = { editedText = it },
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(12.dp)
-                                        .focusRequester(focusRequester),
-                                    textStyle = TextStyle(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 13.sp,
-                                        lineHeight = 20.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontWeight = FontWeight.Normal
-                                    ),
-                                    visualTransformation = highlight,
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                                )
-                            }
-                        }
-
-                        filePreview != null && filePreview.fileType == FileType.IMAGE -> {
-                            val imageBitmap = remember(filePreview.imageData) {
-                                filePreview.imageData?.let { bytes ->
-                                    try {
-                                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                }
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                if (imageBitmap != null) {
-                                    Image(
-                                        bitmap = imageBitmap,
-                                        contentDescription = "图片",
-                                        modifier = Modifier.fillMaxWidth(),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "这个图片含有二进制数据，不能按文本编辑。",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-
-                        else -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "这个文件含有二进制数据，不能按文本编辑。",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -351,26 +295,80 @@ fun FileEditorScreen(
     }
 }
 
-private class SourceVisualTransformation(
-    private val comment: Color,
-    private val string: Color,
-    private val number: Color,
-    private val keyword: Color,
-) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        val builder = AnnotatedString.Builder(text.text)
-        for (span in sourceSpans(text.text)) {
-            val color = when (span.kind) {
-                SourceKind.COMMENT -> comment
-                SourceKind.STRING -> string
-                SourceKind.NUMBER -> number
-                SourceKind.KEYWORD -> keyword
-            }
-            if (span.start < span.end) {
-                builder.addStyle(SpanStyle(color = color), span.start, span.end)
+@Composable
+private fun LineNumberEditor(
+    text: String,
+    onTextChange: (String) -> Unit,
+    pathKey: String?,
+    textStyle: TextStyle,
+    gutterColor: Color,
+    visualTransformation: VisualTransformation,
+    cursorColor: Color,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    val scroll = rememberScrollState()
+    val density = LocalDensity.current
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    LaunchedEffect(pathKey) {
+        layoutResult = null
+        scroll.scrollTo(0)
+    }
+    val layout = layoutResult
+    val tops = remember(text, layout?.size, layout?.lineCount) {
+        val current = layout ?: return@remember FloatArray(0)
+        lineTopsPx(text, current)
+    }
+    val pad = 10.dp
+    val gutter = 52.dp
+    BoxWithConstraints(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        val viewportPx = constraints.maxHeight
+        val padPx = with(density) { pad.toPx() }
+        val linePx = with(density) { textStyle.lineHeight.toPx() }
+        val textWidth = (maxWidth - gutter - pad).coerceAtLeast(1.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+        ) {
+            BasicTextField(
+                value = text,
+                onValueChange = onTextChange,
+                modifier = Modifier
+                    .padding(start = gutter, end = pad, top = pad, bottom = pad)
+                    .width(textWidth)
+                    .focusRequester(focusRequester),
+                textStyle = textStyle,
+                visualTransformation = visualTransformation,
+                onTextLayout = { layoutResult = it },
+                cursorBrush = SolidColor(cursorColor)
+            )
+            val scrollPx = scroll.value
+            val numberStyle = textStyle.copy(color = gutterColor, textAlign = TextAlign.End)
+            for (index in tops.indices) {
+                val y = padPx + tops[index]
+                if (y + linePx < scrollPx - linePx) continue
+                if (y > scrollPx + viewportPx + linePx) break
+                key(index) {
+                    Text(
+                        text = (index + 1).toString(),
+                        modifier = Modifier
+                            .offset(y = with(density) { y.toDp() })
+                            .width(gutter - 6.dp)
+                            .padding(end = 4.dp),
+                        textAlign = TextAlign.End,
+                        style = numberStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip
+                    )
+                }
             }
         }
-        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
     }
 }
 

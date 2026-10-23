@@ -1,6 +1,9 @@
 package com.jh270.toolbox.ui
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -83,6 +86,7 @@ data class SshUiState(
     val actionSuccessMessage: String? = null,
     val actionErrorMessage: String? = null,
     val searchQuery: String = "",
+    val clearClipboardAfterKeyLogin: Boolean = true,
 ) {
     val displayPath: String
         get() = if (isInArchiveMode) {
@@ -117,7 +121,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 savedProfiles = ProfileStore.load(app),
                 terminalBackground = AppSettings.terminalBackground(app),
-                terminalSelection = AppSettings.terminalSelection(app)
+                terminalSelection = AppSettings.terminalSelection(app),
+                clearClipboardAfterKeyLogin = AppSettings.clearClipboardAfterKeyLogin(app)
             )
         }
     }
@@ -130,6 +135,11 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     fun setTerminalSelection(color: Int) {
         AppSettings.setTerminalSelection(getApplication(), color)
         _uiState.update { it.copy(terminalSelection = color) }
+    }
+
+    fun setClearClipboardAfterKeyLogin(enabled: Boolean) {
+        AppSettings.setClearClipboardAfterKeyLogin(getApplication(), enabled)
+        _uiState.update { it.copy(clearClipboardAfterKeyLogin = enabled) }
     }
 
     private fun startKeepAlive() {
@@ -186,7 +196,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
-                    archiveEntries = emptyList()
+                    archiveEntries = emptyList(),
+                    searchQuery = ""
                 )
             }
         }
@@ -264,10 +275,11 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
 
         val epoch = ++sessionEpoch
         viewModelScope.launch {
-            _uiState.update { it.copy(isConnecting = true, connectionError = null) }
+            _uiState.update { it.copy(isConnecting = true, connectionError = null, searchQuery = "") }
             val result = repository.connect(config)
             if (epoch != sessionEpoch) return@launch
             result.onSuccess { pwd ->
+                clearPrivateKeyClipboard(config)
                 requestedDirectory = pwd
                 _uiState.update {
                     it.copy(
@@ -280,7 +292,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                         isInArchiveMode = false,
                         archiveFile = null,
                         archiveSubPath = "",
-                        archiveEntries = emptyList()
+                        archiveEntries = emptyList(),
+                        searchQuery = ""
                     )
                 }
                 loadDirectory(pwd)
@@ -321,7 +334,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     isInArchiveMode = false,
                     archiveFile = null,
                     archiveSubPath = "",
-                    archiveEntries = emptyList()
+                    archiveEntries = emptyList(),
+                    searchQuery = ""
                 )
             }
         }
@@ -1225,8 +1239,19 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                 showCompressDialog = false,
                 showCreateFolderDialog = false,
                 showCreateFileDialog = false,
-                showFileDetailsDialog = false
+                showFileDetailsDialog = false,
+                searchQuery = ""
             )
+        }
+    }
+
+    private fun clearPrivateKeyClipboard(config: SshConfig) {
+        if (config.authType != AuthType.PRIVATE_KEY) return
+        if (!AppSettings.clearClipboardAfterKeyLogin(getApplication())) return
+        val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        try {
+            clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        } catch (_: RuntimeException) {
         }
     }
 

@@ -7,6 +7,7 @@ object AppSettings {
     private const val AGREEMENT = "agreement_accepted"
     private const val TERMINAL_BG = "terminal_background"
     private const val TERMINAL_SELECTION = "terminal_selection"
+    private const val CLEAR_CLIPBOARD_AFTER_KEY_LOGIN = "clear_clipboard_after_key_login"
 
     const val DEFAULT_TERMINAL_BG = 0xFF0A0E14.toInt()
     const val DEFAULT_TERMINAL_SELECTION = 0xCC2563EB.toInt()
@@ -29,5 +30,13 @@ object AppSettings {
 
     fun setTerminalSelection(context: Context, color: Int) {
         prefs(context).edit().putInt(TERMINAL_SELECTION, color).apply()
+    }
+
+    fun clearClipboardAfterKeyLogin(context: Context): Boolean {
+        return prefs(context).getBoolean(CLEAR_CLIPBOARD_AFTER_KEY_LOGIN, true)
+    }
+
+    fun setClearClipboardAfterKeyLogin(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(CLEAR_CLIPBOARD_AFTER_KEY_LOGIN, enabled).apply()
     }
 }
