@@ -171,7 +171,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 InfoBanner(
                     icon = Icons.Default.Lock,
                     title = "连接不经过第三方",
-                    text = "主机配置与密码只保存在本机应用私有目录；应用不含统计、广告或崩溃上报 SDK，不会把主机信息、凭据和文件内容发送给作者或任何第三方。",
+                    text = "主机配置与密码只保存在本机应用私有目录。域名查询直接发往 IANA 和对应注册局。应用不含统计、广告或崩溃上报 SDK，不会把主机信息、凭据、文件内容或查询记录发送给作者。",
                     container = MaterialTheme.colorScheme.tertiaryContainer,
                     content = MaterialTheme.colorScheme.onTertiaryContainer
                 )

@@ -1,6 +1,9 @@
 # AndroidToolBox
 
-Android SSH toolbox for browsing remote files and opening a shell.
+Android toolbox with two separate tools: an SSH file manager, and a domain registration lookup.
+
+- SSH / SFTP file manager and terminal
+- Domain lookup through the official IANA RDAP bootstrap and registry WHOIS
 
 Copyright 2026 [Jinhong270](https://github.com/Jinhong270)
 
