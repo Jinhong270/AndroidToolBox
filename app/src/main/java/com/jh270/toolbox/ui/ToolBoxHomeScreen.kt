@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -46,6 +47,7 @@ import com.jh270.toolbox.data.AppInfo
 @Composable
 fun ToolBoxHomeScreen(
     onSelectSshFileManager: () -> Unit,
+    onSelectDomainLookup: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     var visible by remember { mutableStateOf(false) }
@@ -53,7 +55,7 @@ fun ToolBoxHomeScreen(
 
     ToolBoxScaffold(
         title = AppInfo.NAME,
-        subtitle = "极简 SSH 工具箱",
+        subtitle = "SSH · 域名查询",
         actions = {
             IconButton(onClick = onOpenSettings) {
                 Icon(
@@ -85,6 +87,18 @@ fun ToolBoxHomeScreen(
                         description = "密码或私钥登录，浏览与编辑远程文件，压缩解压，校验哈希。",
                         icon = Icons.AutoMirrored.Filled.InsertDriveFile,
                         onClick = onSelectSshFileManager
+                    )
+                }
+
+                item {
+                    NavCard(
+                        title = "域名查询",
+                        subtitle = "RDAP · WHOIS",
+                        description = "查询注册局公开信息：注册商、到期时间、域名服务器与状态。支持国家域名和 .com、.org、.dev 等全部后缀。",
+                        icon = Icons.Default.Public,
+                        onClick = onSelectDomainLookup,
+                        accentContainer = MaterialTheme.colorScheme.tertiaryContainer,
+                        accentContent = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
 
@@ -167,7 +181,7 @@ private fun HeroPanel() {
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "一个连接远程主机的小工具：管理文件、打开 Shell、计算校验值，全部在你的设备上完成。",
+                text = "两个各自独立的工具：连接远程主机管理文件和终端，或向注册局查询域名的公开注册信息。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = heroContent.copy(alpha = 0.92f)
             )

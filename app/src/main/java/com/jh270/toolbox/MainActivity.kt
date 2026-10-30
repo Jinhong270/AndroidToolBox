@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jh270.toolbox.data.AppSettings
 import com.jh270.toolbox.ui.AppScreen
+import com.jh270.toolbox.ui.DomainLookupScreen
 import com.jh270.toolbox.ui.RemoteFileManagerScreen
 import com.jh270.toolbox.ui.SettingsScreen
 import com.jh270.toolbox.ui.SshConnectionScreen
@@ -62,6 +63,7 @@ class MainActivity : ComponentActivity() {
                         mutableStateOf(AppSettings.agreementAccepted(context))
                     }
                     var showSettings by rememberSaveable { mutableStateOf(false) }
+                    var selectedTool by rememberSaveable { mutableStateOf("home") }
 
                     LaunchedEffect(uiState.terminalSessionStarted) {
                         if (!uiState.terminalSessionStarted || Build.VERSION.SDK_INT < 33) return@LaunchedEffect
@@ -98,6 +100,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         val destination = when {
+                            selectedTool == "domain" -> "domain"
                             uiState.currentScreen == AppScreen.HOME -> "home"
                             uiState.showTerminalScreen -> "terminal"
                             uiState.isConnected -> "files"
@@ -116,8 +119,12 @@ class MainActivity : ComponentActivity() {
                                         onSelectSshFileManager = {
                                             sshViewModel.selectScreen(AppScreen.SSH_MANAGER)
                                         },
+                                        onSelectDomainLookup = { selectedTool = "domain" },
                                         onOpenSettings = { showSettings = true }
                                     )
+                                }
+                                "domain" -> {
+                                    DomainLookupScreen(onBack = { selectedTool = "home" })
                                 }
                                 "terminal" -> {
                                     SshTerminalScreen(
