@@ -2,9 +2,9 @@ package com.jh270.toolbox.domain
 
 import java.net.URI
 import java.util.Locale
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import com.jh270.toolbox.json.JSONArray
+import com.jh270.toolbox.json.JSONException
+import com.jh270.toolbox.json.JSONObject
 
 object RdapRecords {
     sealed class Parsed {

@@ -1,8 +1,8 @@
 package com.jh270.toolbox.domain
 
 import java.util.Locale
-import org.json.JSONArray
-import org.json.JSONObject
+import com.jh270.toolbox.json.JSONArray
+import com.jh270.toolbox.json.JSONObject
 
 class RdapBootstrap private constructor(
     private val zones: Map<String, List<String>>

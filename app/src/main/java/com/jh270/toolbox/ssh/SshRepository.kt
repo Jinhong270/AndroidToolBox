@@ -1,11 +1,10 @@
 package com.jh270.toolbox.ssh
 
-import com.jcraft.jsch.ChannelExec
-import com.jcraft.jsch.ChannelShell
-import com.jcraft.jsch.ChannelSftp
-import com.jcraft.jsch.JSch
-import com.jcraft.jsch.KeyPair
-import com.jcraft.jsch.Session
+import com.jh270.toolbox.sshnet.ExecChannel
+import com.jh270.toolbox.sshnet.ShellChannel
+import com.jh270.toolbox.sshnet.SftpChannel
+import com.jh270.toolbox.sshnet.SshPrivateKeys
+import com.jh270.toolbox.sshnet.SshSession
 import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
@@ -16,13 +15,12 @@ import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
 import com.jh270.toolbox.data.RemotePlatformDetector
 import com.jh270.toolbox.data.SshConfig
+import com.jh270.toolbox.archive.TarInput
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
-import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
+import com.jh270.toolbox.archive.TarOutput
+import com.jh270.toolbox.archive.gzipInput
+import com.jh270.toolbox.archive.gzipOutput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,16 +39,15 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
-import java.util.Vector
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 class SshRepository {
-    private var session: Session? = null
-    private var sftpChannel: ChannelSftp? = null
+    private var session: SshSession? = null
+    private var sftpChannel: SftpChannel? = null
 
-    private var shellChannel: ChannelShell? = null
+    private var shellChannel: ShellChannel? = null
     private var shellInputStream: InputStream? = null
     private var shellOutputStream: OutputStream? = null
     private var shellReadingThread: Thread? = null
@@ -68,7 +65,7 @@ class SshRepository {
     private val gate = Mutex()
     private var lastConfig: SshConfig? = null
     @Volatile
-    private var inflightExec: ChannelExec? = null
+    private var inflightExec: ExecChannel? = null
 
     @Volatile
     private var reconnectNotified = false
@@ -76,25 +73,6 @@ class SshRepository {
     @Volatile
     var remotePlatform: RemotePlatform = RemotePlatform.UNKNOWN
         private set
-
-    companion object {
-        init {
-            installSecurityProviders()
-        }
-
-        private fun installSecurityProviders() {
-            try {
-                val bc = org.bouncycastle.jce.provider.BouncyCastleProvider()
-                java.security.Security.removeProvider(bc.name)
-                java.security.Security.insertProviderAt(bc, 1)
-            } catch (_: Exception) {}
-            try {
-                val eddsa = net.i2p.crypto.eddsa.EdDSASecurityProvider()
-                java.security.Security.removeProvider(eddsa.name)
-                java.security.Security.insertProviderAt(eddsa, 2)
-            } catch (_: Exception) {}
-        }
-    }
 
     suspend fun connect(config: SshConfig): Result<String> = withContext(Dispatchers.IO) {
         gate.withLock { connectLocked(config, recovering = false) }
@@ -129,64 +107,46 @@ class SshRepository {
     }
 
     private fun connectLocked(config: SshConfig, recovering: Boolean): Result<String> {
-        var openedSession: Session? = null
-        var openedChannel: ChannelSftp? = null
+        var openedSession: SshSession? = null
+        var openedChannel: SftpChannel? = null
         return try {
             disconnectInternal()
             remotePlatform = RemotePlatform.UNKNOWN
-            val jsch = JSch()
-
-            if (config.authType == AuthType.PRIVATE_KEY && config.privateKey.isNotBlank()) {
-                val keyContent = normalizePrivateKey(config.privateKey)
-                val keyBytes = keyContent.toByteArray(Charsets.UTF_8)
-
-                val probe = KeyPair.load(jsch, keyBytes, null)
-                try {
-                    if (probe.isEncrypted) {
-                        if (config.passphrase.isBlank()) {
-                            throw IllegalArgumentException("私钥已加密：请填写私钥密码")
-                        }
-                        if (!probe.decrypt(config.passphrase)) {
-                            throw IllegalArgumentException("私钥密码错误，无法解密私钥")
-                        }
-                    }
-                } finally {
-                    probe.dispose()
-                }
-
-                val passphraseBytes = if (config.passphrase.isNotBlank()) config.passphrase.toByteArray(Charsets.UTF_8) else null
-                jsch.addIdentity("toolbox-key", keyBytes, null, passphraseBytes)
-            }
-
-            val newSession = jsch.getSession(config.username, config.host, config.port)
-            openedSession = newSession
-            if (config.authType == AuthType.PASSWORD) {
-                newSession.setPassword(config.password)
-            }
-
-            val userInfo = MyUserInfo(
-                password = if (config.authType == AuthType.PASSWORD) config.password else null,
-                passphrase = if (config.authType == AuthType.PRIVATE_KEY && config.passphrase.isNotBlank()) config.passphrase else null
-            )
-            newSession.setUserInfo(userInfo)
-
-            val properties = java.util.Properties()
-            properties["StrictHostKeyChecking"] = "no"
-            if (config.authType == AuthType.PASSWORD) {
-                properties["PreferredAuthentications"] = "password,keyboard-interactive,publickey"
+            val privateKey = if (config.authType == AuthType.PRIVATE_KEY && config.privateKey.isNotBlank()) {
+                normalizePrivateKey(config.privateKey)
             } else {
-                properties["PreferredAuthentications"] = "publickey,password,keyboard-interactive"
+                null
             }
-            newSession.setConfig(properties)
-            newSession.timeout = 20000
+            if (privateKey != null) {
+                try {
+                    SshPrivateKeys.load(privateKey, config.passphrase.ifBlank { null })
+                } catch (e: IllegalArgumentException) {
+                    val message = e.message.orEmpty()
+                    if (message.contains("encrypted")) throw IllegalArgumentException("私钥已加密：请填写私钥密码")
+                    if (message.contains("passphrase")) throw IllegalArgumentException("私钥密码错误，无法解密私钥")
+                    throw e
+                }
+            }
+
+            val newSession = SshSession()
+            openedSession = newSession
             newSession.setServerAliveInterval(15_000)
             newSession.setServerAliveCountMax(4)
-            newSession.connect(20000)
+            newSession.connect(
+                username = config.username,
+                host = config.host,
+                port = config.port,
+                password = if (config.authType == AuthType.PASSWORD) config.password else null,
+                privateKey = privateKey,
+                passphrase = config.passphrase.ifBlank { null },
+                timeoutMs = 20000,
+                preferPublicKey = config.authType != AuthType.PASSWORD
+            )
 
-            val channel = newSession.openChannel("sftp") as ChannelSftp
+            val channel = newSession.openChannel("sftp") as SftpChannel
             openedChannel = channel
             channel.connect(20000)
-            val pwd = RemotePath.normalize(channel.pwd() ?: "/")
+            val pwd = RemotePath.normalize(channel.pwd())
             remotePlatform = detectRemotePlatform(newSession, pwd)
 
             session = newSession
@@ -313,7 +273,7 @@ class SshRepository {
             shellClosingLocally = false
             shellSessionEnded = false
 
-            val channel = sess.openChannel("shell") as ChannelShell
+            val channel = sess.openChannel("shell") as ShellChannel
             channel.setPty(true)
             channel.setPtyType("xterm-256color", cols, rows, 0, 0)
             try {
@@ -413,7 +373,7 @@ class SshRepository {
             val targetPath = RemotePath.normalize(if (path.isBlank()) "/" else path)
 
             @Suppress("UNCHECKED_CAST")
-            val entries = channel.ls(targetPath) as Vector<ChannelSftp.LsEntry>
+            val entries = channel.ls(targetPath)
 
             val fileItems = mutableListOf<RemoteFile>()
             for (entry in entries) {
@@ -486,7 +446,7 @@ class SshRepository {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val newFilePath = RemotePath.join(parentPath, fileName)
             val inputStream = ByteArrayInputStream(ByteArray(0))
-            channel.put(inputStream, newFilePath)
+            channel.put(inputStream, newFilePath, SftpChannel.OVERWRITE)
         }
     }
 
@@ -603,7 +563,7 @@ class SshRepository {
                     }
                     val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
                     val cmd = tarReadCommand(archiveFile, entryPath)
-                    val execChan = sess.openChannel("exec") as ChannelExec
+                    val execChan = sess.openChannel("exec") as ExecChannel
                     execChan.setCommand(cmd)
                     val inStream = execChan.inputStream
                     execChan.connect(15000)
@@ -646,7 +606,7 @@ class SshRepository {
             val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
             val bytes = encodeEditableText(content, charsetName)
             val inputStream = ByteArrayInputStream(bytes)
-            channel.put(inputStream, path, ChannelSftp.OVERWRITE)
+            channel.put(inputStream, path, SftpChannel.OVERWRITE)
         }
     }
 
@@ -662,10 +622,10 @@ class SshRepository {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun deleteRecursive(channel: ChannelSftp, path: String) {
+    private fun deleteRecursive(channel: SftpChannel, path: String) {
         val attrs = channel.stat(path)
         if (attrs.isDir) {
-            val entries = channel.ls(path) as Vector<ChannelSftp.LsEntry>
+            val entries = channel.ls(path)
             for (entry in entries) {
                 val name = entry.filename
                 if (name == "." || name == "..") continue
@@ -736,8 +696,8 @@ class SshRepository {
 
     private fun shellArg(path: String): String = shellQuote(remoteShellPath(path))
 
-    private fun runExecCapture(sess: Session, command: String, timeoutMs: Int = 120000): String {
-        val channel = sess.openChannel("exec") as ChannelExec
+    private fun runExecCapture(sess: SshSession, command: String, timeoutMs: Int = 120000): String {
+        val channel = sess.openChannel("exec") as ExecChannel
         try {
             channel.setCommand(command)
             val err = ByteArrayOutputStream()
@@ -774,7 +734,7 @@ class SshRepository {
         }
     }
 
-    private fun detectRemotePlatform(sess: Session, homePath: String): RemotePlatform {
+    private fun detectRemotePlatform(sess: SshSession, homePath: String): RemotePlatform {
         val banner = sess.serverVersion ?: ""
         val quick = RemotePlatformDetector.fromSignals(banner, homePath, "")
         if (quick == RemotePlatform.WINDOWS) return RemotePlatform.WINDOWS
@@ -942,7 +902,7 @@ class SshRepository {
         return entries
     }
 
-    private fun readZipEntries(channel: ChannelSftp, path: String): List<ArchiveEntryItem> {
+    private fun readZipEntries(channel: SftpChannel, path: String): List<ArchiveEntryItem> {
         val entries = mutableListOf<ArchiveEntryItem>()
         val inputStream = channel.get(path)
         val zipIn = openZip(inputStream)
@@ -967,7 +927,7 @@ class SshRepository {
         return entries
     }
 
-    private fun downloadToTemp(channel: ChannelSftp, path: String): File {
+    private fun downloadToTemp(channel: SftpChannel, path: String): File {
         val tempFile = File.createTempFile("toolbox_archive_", ".tmp")
         try {
             val fos = FileOutputStream(tempFile)
@@ -986,7 +946,7 @@ class SshRepository {
         }
     }
 
-    private fun readSevenZEntries(channel: ChannelSftp, path: String): List<ArchiveEntryItem> {
+    private fun readSevenZEntries(channel: SftpChannel, path: String): List<ArchiveEntryItem> {
         val tempFile = downloadToTemp(channel, path)
         try {
             val entries = mutableListOf<ArchiveEntryItem>()
@@ -1014,7 +974,7 @@ class SshRepository {
         }
     }
 
-    private fun readSevenZEntryContent(channel: ChannelSftp, archivePath: String, entryPath: String): ByteArray {
+    private fun readSevenZEntryContent(channel: SftpChannel, archivePath: String, entryPath: String): ByteArray {
         val tempFile = downloadToTemp(channel, archivePath)
         try {
             SevenZFile.Builder().setFile(tempFile).get().use { sevenZ ->
@@ -1142,7 +1102,7 @@ class SshRepository {
         }
     }
 
-    private suspend fun <T> workerCall(block: suspend (ChannelSftp) -> T): Result<T> = withContext(Dispatchers.IO) {
+    private suspend fun <T> workerCall(block: suspend (SftpChannel) -> T): Result<T> = withContext(Dispatchers.IO) {
         val worker = gate.withLock { openExtraSftp() }
         val hook = coroutineContext[Job]?.invokeOnCompletion { cause ->
             if (cause != null) {
@@ -1170,15 +1130,15 @@ class SshRepository {
         }
     }
 
-    private fun openExtraSftp(): ChannelSftp {
+    private fun openExtraSftp(): SftpChannel {
         val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
         if (!sess.isConnected) throw IllegalStateException("session is down")
-        val channel = sess.openChannel("sftp") as ChannelSftp
+        val channel = sess.openChannel("sftp") as SftpChannel
         channel.connect(20000)
         return channel
     }
 
-    private fun compressZipSFTPFallback(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+    private fun compressZipSFTPFallback(channel: SftpChannel, file: RemoteFile, parentDir: String) {
         val tempZipFile = File.createTempFile("toolbox_compress_", ".zip")
         try {
             val fos = FileOutputStream(tempZipFile)
@@ -1203,7 +1163,7 @@ class SshRepository {
 
             val targetZipPath = RemotePath.join(parentDir, "${file.name}.zip")
             val fis = FileInputStream(tempZipFile)
-            channel.put(fis, targetZipPath, ChannelSftp.OVERWRITE)
+            channel.put(fis, targetZipPath, SftpChannel.OVERWRITE)
             fis.close()
         } finally {
             tempZipFile.delete()
@@ -1211,8 +1171,8 @@ class SshRepository {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun compressFolderRecursiveSFTP(channel: ChannelSftp, currentPath: String, zipPathPrefix: String, zipOut: ZipOutputStream) {
-        val entries = channel.ls(currentPath) as Vector<ChannelSftp.LsEntry>
+    private fun compressFolderRecursiveSFTP(channel: SftpChannel, currentPath: String, zipPathPrefix: String, zipOut: ZipOutputStream) {
+        val entries = channel.ls(currentPath)
         for (entry in entries) {
             val name = entry.filename
             if (name == "." || name == "..") continue
@@ -1266,7 +1226,7 @@ class SshRepository {
         }
     }
 
-    private fun decompressZipSFTPFallback(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+    private fun decompressZipSFTPFallback(channel: SftpChannel, file: RemoteFile, parentDir: String) {
         val tempZipFile = File.createTempFile("toolbox_decompress_", ".zip")
         try {
             val fos = FileOutputStream(tempZipFile)
@@ -1299,7 +1259,7 @@ class SshRepository {
                     ensureRemoteDir(channel, targetPath)
                 } else {
                     ensureRemoteDir(channel, RemotePath.parent(targetPath))
-                    val outStream = channel.put(targetPath, ChannelSftp.OVERWRITE)
+                    val outStream = channel.put(targetPath, SftpChannel.OVERWRITE)
                     while (zipIn.read(buffer).also { read = it } != -1) {
                         outStream.write(buffer, 0, read)
                     }
@@ -1314,11 +1274,11 @@ class SshRepository {
         }
     }
 
-    private fun readTarEntryLocal(channel: ChannelSftp, file: RemoteFile, entryPath: String): ByteArray {
+    private fun readTarEntryLocal(channel: SftpChannel, file: RemoteFile, entryPath: String): ByteArray {
         val tempFile = downloadToTemp(channel, file.path)
         try {
             openTar(tempFile, file.name).use { tar ->
-                var entry = tar.nextEntry
+                var entry = tar.nextEntry()
                 while (entry != null) {
                     val name = entry.name
                     if (name == entryPath || name.trimEnd('/') == entryPath.trimEnd('/')) {
@@ -1331,7 +1291,7 @@ class SshRepository {
                         }
                         return out.toByteArray()
                     }
-                    entry = tar.nextEntry
+                    entry = tar.nextEntry()
                 }
             }
             throw IllegalStateException("压缩包中未找到文件: $entryPath")
@@ -1340,7 +1300,7 @@ class SshRepository {
         }
     }
 
-    private fun listTarEntries(channel: ChannelSftp, file: RemoteFile): List<ArchiveEntryItem> {
+    private fun listTarEntries(channel: SftpChannel, file: RemoteFile): List<ArchiveEntryItem> {
         val sess = session
         if (sess != null) {
             try {
@@ -1354,12 +1314,12 @@ class SshRepository {
         return listTarLocal(channel, file)
     }
 
-    private fun listTarLocal(channel: ChannelSftp, file: RemoteFile): List<ArchiveEntryItem> {
+    private fun listTarLocal(channel: SftpChannel, file: RemoteFile): List<ArchiveEntryItem> {
         val tempFile = downloadToTemp(channel, file.path)
         try {
             val entries = mutableListOf<ArchiveEntryItem>()
             openTar(tempFile, file.name).use { tar ->
-                var entry = tar.nextEntry
+                var entry = tar.nextEntry()
                 while (entry != null) {
                     val rawName = entry.name.trimEnd('/')
                     if (rawName.isNotBlank() && RemotePath.safeRelative(entry.name) != null) {
@@ -1372,7 +1332,7 @@ class SshRepository {
                             )
                         )
                     }
-                    entry = tar.nextEntry
+                    entry = tar.nextEntry()
                 }
             }
             return entries
@@ -1381,14 +1341,14 @@ class SshRepository {
         }
     }
 
-    private fun openTar(file: File, archiveName: String): TarArchiveInputStream {
+    private fun openTar(file: File, archiveName: String): TarInput {
         val raw = FileInputStream(file)
         val lower = archiveName.lowercase()
-        val input = if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) GzipCompressorInputStream(raw) else raw
-        return TarArchiveInputStream(input, "UTF-8")
+        val input = if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) gzipInput(raw) else raw
+        return TarInput(input)
     }
 
-    private fun compressTarLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String, gzip: Boolean) {
+    private fun compressTarLocal(channel: SftpChannel, file: RemoteFile, parentDir: String, gzip: Boolean) {
         val ext = if (gzip) ".tar.gz" else ".tar"
         val tempRoot = File.createTempFile("toolbox_tar_src_", "")
         tempRoot.delete()
@@ -1398,7 +1358,7 @@ class SshRepository {
             downloadRecursive(channel, file.path, File(tempRoot, file.name), file.isDirectory)
             writeTar(tempRoot, tempArchive, gzip)
             FileInputStream(tempArchive).use { input ->
-                channel.put(input, RemotePath.join(parentDir, file.name + ext), ChannelSftp.OVERWRITE)
+                channel.put(input, RemotePath.join(parentDir, file.name + ext), SftpChannel.OVERWRITE)
             }
         } finally {
             tempArchive.delete()
@@ -1408,29 +1368,26 @@ class SshRepository {
 
     private fun writeTar(root: File, dest: File, gzip: Boolean) {
         val raw = FileOutputStream(dest)
-        val compressed = if (gzip) GzipCompressorOutputStream(raw) else raw
-        TarArchiveOutputStream(compressed).use { tar ->
-            tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
-            tar.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+        val compressed = if (gzip) gzipOutput(raw) else raw
+        TarOutput(compressed).use { tar ->
             val base = root.absoluteFile
             root.walkTopDown().forEach { child ->
                 if (child == root) return@forEach
                 val rel = base.toPath().relativize(child.toPath()).toString().replace('\\', '/')
                 val entryName = if (child.isDirectory) rel.trimEnd('/') + "/" else rel
-                val entry = TarArchiveEntry(child, entryName)
-                tar.putArchiveEntry(entry)
+                tar.putEntry(entryName, if (child.isFile) child.length() else 0L, child.isDirectory)
                 if (child.isFile) child.inputStream().use { it.copyTo(tar) }
-                tar.closeArchiveEntry()
+                tar.closeEntry()
             }
             tar.finish()
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun downloadRecursive(channel: ChannelSftp, remote: String, local: File, isDir: Boolean) {
+    private fun downloadRecursive(channel: SftpChannel, remote: String, local: File, isDir: Boolean) {
         if (isDir) {
             local.mkdirs()
-            val entries = channel.ls(remote) as Vector<ChannelSftp.LsEntry>
+            val entries = channel.ls(remote)
             for (entry in entries) {
                 val name = entry.filename
                 if (name == "." || name == "..") continue
@@ -1444,11 +1401,11 @@ class SshRepository {
         }
     }
 
-    private fun decompressTarLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+    private fun decompressTarLocal(channel: SftpChannel, file: RemoteFile, parentDir: String) {
         val tempFile = downloadToTemp(channel, file.path)
         try {
             openTar(tempFile, file.name).use { tar ->
-                var entry = tar.nextEntry
+                var entry = tar.nextEntry()
                 while (entry != null) {
                     val relative = RemotePath.safeRelative(entry.name)
                     if (relative != null) {
@@ -1462,7 +1419,7 @@ class SshRepository {
                             }
                         }
                     }
-                    entry = tar.nextEntry
+                    entry = tar.nextEntry()
                 }
             }
         } finally {
@@ -1470,16 +1427,16 @@ class SshRepository {
         }
     }
 
-    private fun decompressGzipLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+    private fun decompressGzipLocal(channel: SftpChannel, file: RemoteFile, parentDir: String) {
         val tempFile = downloadToTemp(channel, file.path)
         val tempOut = File.createTempFile("toolbox_gunzip_", ".bin")
         try {
-            GzipCompressorInputStream(FileInputStream(tempFile)).use { input ->
+            gzipInput(FileInputStream(tempFile)).use { input ->
                 FileOutputStream(tempOut).use { output -> input.copyTo(output) }
             }
             val outName = file.name.substringBeforeLast('.').ifBlank { "${file.name}.out" }
             FileInputStream(tempOut).use { input ->
-                channel.put(input, RemotePath.join(parentDir, outName), ChannelSftp.OVERWRITE)
+                channel.put(input, RemotePath.join(parentDir, outName), SftpChannel.OVERWRITE)
             }
         } finally {
             tempFile.delete()
@@ -1487,7 +1444,7 @@ class SshRepository {
         }
     }
 
-    private fun decompressSevenZLocal(channel: ChannelSftp, file: RemoteFile, parentDir: String) {
+    private fun decompressSevenZLocal(channel: SftpChannel, file: RemoteFile, parentDir: String) {
         val tempFile = downloadToTemp(channel, file.path)
         try {
             SevenZFile.Builder().setFile(tempFile).get().use { sevenZ ->
@@ -1512,7 +1469,7 @@ class SshRepository {
                                         }
                                     }
                                     FileInputStream(part).use { input ->
-                                        channel.put(input, target, ChannelSftp.OVERWRITE)
+                                        channel.put(input, target, SftpChannel.OVERWRITE)
                                     }
                                 } finally {
                                     part.delete()
@@ -1528,7 +1485,7 @@ class SshRepository {
         }
     }
 
-    private fun uploadLimited(channel: ChannelSftp, input: InputStream, target: String) {
+    private fun uploadLimited(channel: SftpChannel, input: InputStream, target: String) {
         val part = File.createTempFile("toolbox_entry_", ".bin")
         try {
             FileOutputStream(part).use { out ->
@@ -1539,13 +1496,13 @@ class SshRepository {
                     read = input.read(buffer)
                 }
             }
-            FileInputStream(part).use { channel.put(it, target, ChannelSftp.OVERWRITE) }
+            FileInputStream(part).use { channel.put(it, target, SftpChannel.OVERWRITE) }
         } finally {
             part.delete()
         }
     }
 
-    private fun ensureRemoteDir(channel: ChannelSftp, dir: String) {
+    private fun ensureRemoteDir(channel: SftpChannel, dir: String) {
         val normalized = RemotePath.normalize(dir)
         if (normalized.isBlank() || RemotePath.isRoot(normalized)) return
         val parent = RemotePath.parent(normalized)
@@ -1555,8 +1512,8 @@ class SshRepository {
         } catch (_: Exception) {}
     }
 
-    private fun executeSshCommand(sess: Session, command: String) {
-        val channel = sess.openChannel("exec") as ChannelExec
+    private fun executeSshCommand(sess: SshSession, command: String) {
+        val channel = sess.openChannel("exec") as ExecChannel
         inflightExec = channel
         try {
         channel.setCommand(command)
@@ -1649,33 +1606,4 @@ class SshRepository {
         }
     }
 
-    private class MyUserInfo(
-        private val password: String?,
-        private val passphrase: String?
-    ) : com.jcraft.jsch.UserInfo, com.jcraft.jsch.UIKeyboardInteractive {
-        override fun getPassword(): String? = password
-        override fun promptPassword(message: String?): Boolean = true
-        override fun getPassphrase(): String? = passphrase
-        override fun promptPassphrase(message: String?): Boolean = true
-        override fun promptYesNo(message: String?): Boolean = true
-        override fun showMessage(message: String?) {}
-
-        override fun promptKeyboardInteractive(
-            destination: String?,
-            name: String?,
-            instruction: String?,
-            prompt: Array<out String>?,
-            echo: BooleanArray?
-        ): Array<String>? {
-            if (prompt != null && password != null) {
-                val response = arrayOfNulls<String>(prompt.size)
-                for (i in prompt.indices) {
-                    response[i] = password
-                }
-                @Suppress("UNCHECKED_CAST")
-                return response as Array<String>
-            }
-            return null
-        }
-    }
 }
