@@ -5,26 +5,28 @@ import java.net.URI
 import java.util.Locale
 
 object DomainNames {
+    enum class NameProblem { EMPTY, SPACE, IP, BAD_CHARS, TOO_LONG, INCOMPLETE }
+
     sealed class Parse {
         data class Ok(val unicodeName: String, val asciiName: String) : Parse()
-        data class Invalid(val message: String) : Parse()
+        data class Invalid(val problem: NameProblem) : Parse()
     }
 
     fun parse(raw: String): Parse {
         val host = extractHost(raw)
-        if (host.isBlank()) return Parse.Invalid("请输入域名")
-        if (host.any { it.isWhitespace() }) return Parse.Invalid("域名不能包含空格")
-        if (isIpAddress(host)) return Parse.Invalid("请输入域名，IP 地址不在查询范围内")
+        if (host.isBlank()) return Parse.Invalid(NameProblem.EMPTY)
+        if (host.any { it.isWhitespace() }) return Parse.Invalid(NameProblem.SPACE)
+        if (isIpAddress(host)) return Parse.Invalid(NameProblem.IP)
         val ascii = try {
             IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES).trim().trimEnd('.').lowercase(Locale.ROOT)
         } catch (e: IllegalArgumentException) {
-            return Parse.Invalid("这个域名包含无法使用的字符")
+            return Parse.Invalid(NameProblem.BAD_CHARS)
         }
-        if (ascii.isEmpty()) return Parse.Invalid("请输入域名")
-        if (ascii.length > 253) return Parse.Invalid("域名过长")
+        if (ascii.isEmpty()) return Parse.Invalid(NameProblem.EMPTY)
+        if (ascii.length > 253) return Parse.Invalid(NameProblem.TOO_LONG)
         val labels = ascii.split('.')
-        if (labels.size < 2) return Parse.Invalid("请输入完整域名，例如 example.com")
-        if (labels.any { !validLabel(it) }) return Parse.Invalid("这个域名包含无法使用的字符")
+        if (labels.size < 2) return Parse.Invalid(NameProblem.INCOMPLETE)
+        if (labels.any { !validLabel(it) }) return Parse.Invalid(NameProblem.BAD_CHARS)
         val unicode = IDN.toUnicode(ascii, IDN.USE_STD3_ASCII_RULES).trim().trimEnd('.').lowercase(Locale.ROOT)
         return Parse.Ok(unicode, ascii)
     }

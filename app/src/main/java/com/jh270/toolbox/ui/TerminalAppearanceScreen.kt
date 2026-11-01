@@ -32,30 +32,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.AppSettings
 
-private data class ColorChoice(val name: String, val value: Int)
+private data class ColorChoice(val label: Int, val value: Int)
 
 private val BackgroundChoices = listOf(
-    ColorChoice("深空", 0xFF0A0E14.toInt()),
-    ColorChoice("纯黑", 0xFF000000.toInt()),
-    ColorChoice("午夜蓝", 0xFF111827.toInt()),
-    ColorChoice("石墨", 0xFF1C1917.toInt()),
-    ColorChoice("藏青", 0xFF0F172A.toInt()),
-    ColorChoice("亮白", 0xFFF8FAFC.toInt())
+    ColorChoice(R.string.color_space, 0xFF0A0E14.toInt()),
+    ColorChoice(R.string.color_black, 0xFF000000.toInt()),
+    ColorChoice(R.string.color_midnight, 0xFF111827.toInt()),
+    ColorChoice(R.string.color_graphite, 0xFF1C1917.toInt()),
+    ColorChoice(R.string.color_navy, 0xFF0F172A.toInt()),
+    ColorChoice(R.string.color_white, 0xFFF8FAFC.toInt())
 )
 
 private val SelectionChoices = listOf(
-    ColorChoice("蓝", 0xCC2563EB.toInt()),
-    ColorChoice("琥珀", 0xCCF59E0B.toInt()),
-    ColorChoice("翠绿", 0xCC16A34A.toInt()),
-    ColorChoice("朱红", 0xCCDC2626.toInt()),
-    ColorChoice("紫罗兰", 0xCC9333EA.toInt()),
-    ColorChoice("青", 0xCC06B6D4.toInt())
+    ColorChoice(R.string.color_blue, 0xCC2563EB.toInt()),
+    ColorChoice(R.string.color_amber, 0xCCF59E0B.toInt()),
+    ColorChoice(R.string.color_green, 0xCC16A34A.toInt()),
+    ColorChoice(R.string.color_red, 0xCCDC2626.toInt()),
+    ColorChoice(R.string.color_violet, 0xCC9333EA.toInt()),
+    ColorChoice(R.string.color_cyan, 0xCC06B6D4.toInt())
 )
 
 @Composable
@@ -66,8 +68,8 @@ fun TerminalAppearanceScreen(
     onBack: () -> Unit
 ) {
     ToolBoxScaffold(
-        title = "终端配色",
-        subtitle = "背景与选中高亮",
+        title = stringResource(R.string.appearance_title),
+        subtitle = stringResource(R.string.appearance_subtitle),
         onBack = onBack
     ) { padding ->
         Column(
@@ -83,16 +85,16 @@ fun TerminalAppearanceScreen(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                SectionHeader("终端背景")
+                SectionHeader(stringResource(R.string.section_bg))
                 SwatchGrid(
                     choices = BackgroundChoices,
                     selected = uiState.terminalBackground,
                     onSelect = onBackground
                 )
 
-                SectionHeader("选中高亮")
+                SectionHeader(stringResource(R.string.section_highlight))
                 Text(
-                    text = "长按终端文字拖动选择时出现的颜色。",
+                    text = stringResource(R.string.highlight_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -116,13 +118,13 @@ fun TerminalAppearanceScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("恢复默认配色")
+                        Text(stringResource(R.string.restore_colors))
                     }
                 }
 
                 InfoBanner(
                     icon = Icons.Default.Palette,
-                    text = "配色只影响终端界面，保存在本机，重装应用后恢复默认。",
+                    text = stringResource(R.string.colors_note),
                     container = MaterialTheme.colorScheme.tertiaryContainer,
                     content = MaterialTheme.colorScheme.onTertiaryContainer
                 )
@@ -211,7 +213,7 @@ private fun SwatchCell(
                 }
             }
             Text(
-                text = choice.name,
+                text = stringResource(choice.label),
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -250,13 +252,13 @@ private fun TerminalColorPreview(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "实时预览",
+                        text = stringResource(R.string.preview_live),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        text = "不可输入 · 按钮无效",
+                        text = stringResource(R.string.preview_readonly),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -273,7 +275,10 @@ private fun TerminalColorPreview(
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        PreviewLine("ToolBox Shell Terminal Connected", accent)
+                        PreviewLine(
+                            stringResource(R.string.app_name) + " · " + stringResource(R.string.terminal_subtitle),
+                            accent
+                        )
                         PreviewLine("root@server:~# ls -la", foreground)
 
                         Row {

@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.jh270.toolbox.MainActivity
+import com.jh270.toolbox.R
 
 class TerminalKeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -49,7 +50,7 @@ class TerminalKeepAliveService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(CHANNEL_ID, "终端会话", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notify_channel), NotificationManager.IMPORTANCE_LOW)
         channel.setShowBadge(false)
         manager.createNotificationChannel(channel)
     }
@@ -75,15 +76,15 @@ class TerminalKeepAliveService : Service() {
         )
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setContentTitle("SSH 终端")
-            .setContentText(if (wakeHeld) "Wake Lock 已开启，会话保持运行" else "会话仍在后台运行")
+            .setContentTitle(getString(R.string.notify_title))
+            .setContentText(if (wakeHeld) getString(R.string.notify_wake_on) else getString(R.string.notify_background))
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
         if (wakeHeld) {
-            builder.addAction(0, "Release Wake Lock", release)
+            builder.addAction(0, getString(R.string.notify_release), release)
         } else {
-            builder.addAction(0, "Wake Lock", wake)
+            builder.addAction(0, getString(R.string.notify_wake), wake)
         }
         return builder.build()
     }

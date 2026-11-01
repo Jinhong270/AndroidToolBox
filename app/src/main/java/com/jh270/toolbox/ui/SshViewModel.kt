@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
@@ -98,7 +99,9 @@ data class SshUiState(
 }
 
 class SshViewModel(app: Application) : AndroidViewModel(app) {
-    private val repository = SshRepository()
+    private val repository = SshRepository(app)
+
+    private fun text(id: Int, vararg args: Any): String = getApplication<Application>().getString(id, *args)
 
     private val _uiState = MutableStateFlow(SshUiState())
     val uiState: StateFlow<SshUiState> = _uiState.asStateFlow()
@@ -224,7 +227,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         )
         val updated = uiState.value.savedProfiles.filter { it.id != newProfile.id && (it.config.host != config.host || it.config.port != config.port) } + newProfile
         persistProfiles(updated)
-        _uiState.update { it.copy(savedProfiles = updated, config = newProfile.config, actionSuccessMessage = "配置已保存") }
+        _uiState.update { it.copy(savedProfiles = updated, config = newProfile.config, actionSuccessMessage = text(R.string.msg_saved)) }
     }
 
     fun deleteProfile(profile: SshProfile) {
@@ -269,7 +272,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     fun connect() {
         val config = uiState.value.config
         if (config.host.isBlank()) {
-            _uiState.update { it.copy(connectionError = "请输入服务器 IP 地址或主机名") }
+            _uiState.update { it.copy(connectionError = text(R.string.err_host_required)) }
             return
         }
 
@@ -302,7 +305,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         isConnecting = false,
                         isConnected = false,
-                        connectionError = error.message ?: "连接 SSH 服务器失败"
+                        connectionError = error.message ?: text(R.string.err_connect_ssh)
                     )
                 }
             }
@@ -372,18 +375,18 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                             remotePlatform = repository.remotePlatform,
                             fileList = files,
                             fileFetchError = null,
-                            actionSuccessMessage = if (restored) "连接已恢复" else it.actionSuccessMessage
+                            actionSuccessMessage = if (restored) text(R.string.msg_restored) else it.actionSuccessMessage
                         )
                     }
                 }.onFailure { error ->
                     if (epoch != sessionEpoch || requestedDirectory != target) return@onFailure
                     if (!repository.isConnected()) {
-                        dropToConnection(error.message ?: "连接已断开，请重新连接")
+                        dropToConnection(error.message ?: text(R.string.err_disconnected))
                     } else {
                         _uiState.update {
                             it.copy(
                                 isLoadingFiles = false,
-                                fileFetchError = error.message ?: "获取目录文件列表失败"
+                                fileFetchError = error.message ?: text(R.string.err_list)
                             )
                         }
                     }
@@ -414,7 +417,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                         isConnected = true,
                         isLoadingFiles = false,
                         remotePlatform = repository.remotePlatform,
-                        actionSuccessMessage = "连接已恢复"
+                        actionSuccessMessage = text(R.string.msg_restored)
                     )
                 }
                 if (_uiState.value.showTerminalScreen) {
@@ -425,7 +428,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     loadDirectory(_uiState.value.currentPath.ifBlank { pwd })
                 }
             }.onFailure { error ->
-                dropToConnection(error.message ?: "连接已断开，请重新连接")
+                dropToConnection(error.message ?: text(R.string.err_disconnected))
             }
         }
     }
@@ -504,15 +507,15 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         isOperatingFile = false,
                         showCreateFolderDialog = false,
-                        actionSuccessMessage = noted("文件夹创建成功")
+                        actionSuccessMessage = noted(text(R.string.msg_folder_created))
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                failRemote(error, "文件夹创建失败") {
+                failRemote(error, text(R.string.err_folder_create)) {
                     it.copy(
                         isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "文件夹创建失败"
+                        actionErrorMessage = error.message ?: text(R.string.err_folder_create)
                     )
                 }
             }
@@ -530,15 +533,15 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         isOperatingFile = false,
                         showCreateFileDialog = false,
-                        actionSuccessMessage = noted("文件创建成功")
+                        actionSuccessMessage = noted(text(R.string.msg_file_created))
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                failRemote(error, "文件创建失败") {
+                failRemote(error, text(R.string.err_file_create)) {
                     it.copy(
                         isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "文件创建失败"
+                        actionErrorMessage = error.message ?: text(R.string.err_file_create)
                     )
                 }
             }
@@ -584,10 +587,10 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }.onFailure { error ->
-                failRemote(error, "预览文件失败") {
+                failRemote(error, text(R.string.err_preview)) {
                     it.copy(
                         isPreviewLoading = false,
-                        previewError = error.message ?: "预览文件失败"
+                        previewError = error.message ?: text(R.string.err_preview)
                     )
                 }
             }
@@ -616,10 +619,10 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }.onFailure { error ->
-                failRemote(error, "无法解析压缩包结构") {
+                failRemote(error, text(R.string.err_archive_parse)) {
                     it.copy(
                         isLoadingArchiveEntries = false,
-                        archiveError = error.message ?: "无法解析压缩包结构"
+                        archiveError = error.message ?: text(R.string.err_archive_parse)
                     )
                 }
             }
@@ -653,10 +656,10 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }.onFailure { error ->
-                failRemote(error, "预览压缩包内文件失败") {
+                failRemote(error, text(R.string.err_archive_preview)) {
                     it.copy(
                         isPreviewLoading = false,
-                        previewError = error.message ?: "预览压缩包内文件失败"
+                        previewError = error.message ?: text(R.string.err_archive_preview)
                     )
                 }
             }
@@ -755,14 +758,14 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         isSavingFile = false,
                         selectedFilePreview = updatedPreview,
-                        saveSuccessMessage = noted("文件保存成功")
+                        saveSuccessMessage = noted(text(R.string.msg_saved_file))
                     )
                 }
             }.onFailure { error ->
-                failRemote(error, "文件保存失败") {
+                failRemote(error, text(R.string.err_save)) {
                     it.copy(
                         isSavingFile = false,
-                        saveErrorMessage = error.message ?: "文件保存失败"
+                        saveErrorMessage = error.message ?: text(R.string.err_save)
                     )
                 }
             }
@@ -878,7 +881,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (started.isFailure) {
                 stopKeepAlive()
-                val reason = started.exceptionOrNull()?.message ?: "终端会话启动失败"
+                val reason = started.exceptionOrNull()?.message ?: text(R.string.err_terminal_start)
                 feedTerminalOutput("$reason\r\n")
                 _uiState.update { it.copy(terminalClosed = true, isCtrlActive = false) }
                 return@launch
@@ -1017,15 +1020,15 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                         showDeleteConfirmDialog = false,
                         actionTargetFile = null,
                         fileList = updatedList,
-                        actionSuccessMessage = noted("删除成功")
+                        actionSuccessMessage = noted(text(R.string.msg_deleted))
                     )
                 }
                 silentRefreshDirectory()
             }.onFailure { error ->
-                failRemote(error, "删除失败") {
+                failRemote(error, text(R.string.err_delete)) {
                     it.copy(
                         isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "删除失败"
+                        actionErrorMessage = error.message ?: text(R.string.err_delete)
                     )
                 }
             }
@@ -1041,8 +1044,8 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
             result.onSuccess { files ->
                 _uiState.update { it.copy(fileList = files, fileFetchError = null) }
             }.onFailure { error ->
-                failRemote(error, "连接已断开，请重新连接") {
-                    it.copy(fileFetchError = error.message ?: "获取目录文件列表失败")
+                failRemote(error, text(R.string.err_disconnected)) {
+                    it.copy(fileFetchError = error.message ?: text(R.string.err_list))
                 }
             }
         }
@@ -1064,15 +1067,15 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                         isOperatingFile = false,
                         showRenameDialog = false,
                         actionTargetFile = null,
-                        actionSuccessMessage = noted("重命名成功")
+                        actionSuccessMessage = noted(text(R.string.msg_renamed))
                     )
                 }
                 refreshDirectory()
             }.onFailure { error ->
-                failRemote(error, "重命名失败") {
+                failRemote(error, text(R.string.err_rename)) {
                     it.copy(
                         isOperatingFile = false,
-                        actionErrorMessage = error.message ?: "重命名失败"
+                        actionErrorMessage = error.message ?: text(R.string.err_rename)
                     )
                 }
             }
@@ -1099,10 +1102,10 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }.onFailure { error ->
-                failRemote(error, "校验计算失败") {
+                failRemote(error, text(R.string.err_checksum)) {
                     it.copy(
                         isCalculatingChecksum = false,
-                        actionErrorMessage = error.message ?: "校验计算失败"
+                        actionErrorMessage = error.message ?: text(R.string.err_checksum)
                     )
                 }
             }
@@ -1111,14 +1114,14 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
 
     fun executeCompress(format: String) {
         val target = uiState.value.actionTargetFile ?: return
-        startBackgroundTask("正在压缩 ${target.name}", "压缩成功") {
+        startBackgroundTask(text(R.string.msg_compressing, target.name), text(R.string.msg_compressed)) {
             repository.compressFile(target, format)
         }
     }
 
     fun executeDecompress() {
         val target = uiState.value.actionTargetFile ?: return
-        startBackgroundTask("正在解压 ${target.name}", "解压成功") {
+        startBackgroundTask(text(R.string.msg_extracting, target.name), text(R.string.msg_extracted)) {
             repository.decompressFile(target)
         }
     }
@@ -1273,6 +1276,6 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun noted(action: String): String {
-        return if (repository.consumeReconnectNotice()) "连接已恢复，$action" else action
+        return if (repository.consumeReconnectNotice()) text(R.string.msg_restored_action, action) else action
     }
 }

@@ -46,12 +46,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.AuthType
 
 @Composable
@@ -71,10 +73,12 @@ fun SshConnectionScreen(
     }
 
     val isFormValid = isHostValid && isPortValid && isUsernameValid && isAuthValid
+    val hidePassword = stringResource(R.string.cd_hide_password)
+    val showPasswordLabel = stringResource(R.string.cd_show_password)
 
     ToolBoxScaffold(
-        title = "SSH 连接",
-        subtitle = "连接你的远程主机",
+        title = stringResource(R.string.ssh_title),
+        subtitle = stringResource(R.string.ssh_subtitle),
         onBack = { viewModel.returnToHome() }
     ) { padding ->
         Column(
@@ -88,7 +92,7 @@ fun SshConnectionScreen(
             ConnectionHero()
 
             if (uiState.savedProfiles.isNotEmpty()) {
-                SectionHeader("已保存的主机")
+                SectionHeader(stringResource(R.string.ssh_saved_hosts))
                 SettingsGroup {
                     uiState.savedProfiles.forEachIndexed { index, profile ->
                         if (index > 0) {
@@ -128,7 +132,7 @@ fun SshConnectionScreen(
                                 IconButton(onClick = { viewModel.deleteProfile(profile) }) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
-                                        contentDescription = "删除预设",
+                                        contentDescription = stringResource(R.string.cd_delete_profile),
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -139,7 +143,7 @@ fun SshConnectionScreen(
                 }
             }
 
-            SectionHeader("连接信息")
+            SectionHeader(stringResource(R.string.ssh_connection_info))
 
             OutlinedPanel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -151,13 +155,13 @@ fun SshConnectionScreen(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "服务器地址与账号",
+                        text = stringResource(R.string.ssh_server_account),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = { viewModel.newConfig() }) {
-                        Text("清空")
+                        Text(stringResource(R.string.action_clear))
                     }
                 }
 
@@ -166,8 +170,8 @@ fun SshConnectionScreen(
                 OutlinedTextField(
                     value = uiState.config.name,
                     onValueChange = { viewModel.updateConfigName(it) },
-                    label = { Text("预设备注名称 (选填)") },
-                    placeholder = { Text("如: 生产服务器 / 树莓派") },
+                    label = { Text(stringResource(R.string.profile_name_label)) },
+                    placeholder = { Text(stringResource(R.string.profile_name_placeholder)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = MaterialTheme.shapes.small
@@ -182,7 +186,7 @@ fun SshConnectionScreen(
                     OutlinedTextField(
                         value = uiState.config.host,
                         onValueChange = { viewModel.updateHost(it) },
-                        label = { Text("IP 地址 / 主机名") },
+                        label = { Text(stringResource(R.string.host_label)) },
                         placeholder = { Text("192.168.1.100") },
                         modifier = Modifier.weight(0.68f),
                         singleLine = true,
@@ -193,7 +197,7 @@ fun SshConnectionScreen(
                     OutlinedTextField(
                         value = uiState.config.port.toString(),
                         onValueChange = { viewModel.updatePort(it) },
-                        label = { Text("端口") },
+                        label = { Text(stringResource(R.string.port_label)) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(0.32f),
                         singleLine = true,
@@ -207,8 +211,8 @@ fun SshConnectionScreen(
                 OutlinedTextField(
                     value = uiState.config.username,
                     onValueChange = { viewModel.updateUsername(it) },
-                    label = { Text("用户名") },
-                    placeholder = { Text("例如: root") },
+                    label = { Text(stringResource(R.string.username_label)) },
+                    placeholder = { Text(stringResource(R.string.username_placeholder)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = MaterialTheme.shapes.small,
@@ -216,11 +220,11 @@ fun SshConnectionScreen(
                 )
             }
 
-            SectionHeader("身份认证")
+            SectionHeader(stringResource(R.string.section_auth))
 
             OutlinedPanel {
                 Text(
-                    text = "选择登录方式",
+                    text = stringResource(R.string.auth_choose),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -232,14 +236,14 @@ fun SshConnectionScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     AuthChoice(
-                        label = "密码认证",
+                        label = stringResource(R.string.auth_password),
                         icon = Icons.Default.Password,
                         selected = uiState.config.authType == AuthType.PASSWORD,
                         onSelect = { viewModel.updateAuthType(AuthType.PASSWORD) },
                         modifier = Modifier.weight(1f)
                     )
                     AuthChoice(
-                        label = "私钥认证",
+                        label = stringResource(R.string.auth_key),
                         icon = Icons.Default.Key,
                         selected = uiState.config.authType == AuthType.PRIVATE_KEY,
                         onSelect = { viewModel.updateAuthType(AuthType.PRIVATE_KEY) },
@@ -253,7 +257,7 @@ fun SshConnectionScreen(
                     OutlinedTextField(
                         value = uiState.config.password,
                         onValueChange = { viewModel.updatePassword(it) },
-                        label = { Text("密码") },
+                        label = { Text(stringResource(R.string.password_label)) },
                         leadingIcon = {
                             Icon(imageVector = Icons.Default.Lock, contentDescription = null)
                         },
@@ -261,7 +265,7 @@ fun SshConnectionScreen(
                             IconButton(onClick = { showPassword = !showPassword }) {
                                 Icon(
                                     imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (showPassword) "隐藏密码" else "显示密码"
+                                    contentDescription = if (showPassword) hidePassword else showPasswordLabel
                                 )
                             }
                         },
@@ -274,7 +278,7 @@ fun SshConnectionScreen(
                     OutlinedTextField(
                         value = uiState.config.privateKey,
                         onValueChange = { viewModel.updatePrivateKey(it) },
-                        label = { Text("SSH 私钥内容 (OpenSSH / PEM)") },
+                        label = { Text(stringResource(R.string.private_key_label)) },
                         placeholder = { Text("-----BEGIN OPENSSH PRIVATE KEY----- ...") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = MaterialTheme.shapes.small,
@@ -285,7 +289,7 @@ fun SshConnectionScreen(
                     OutlinedTextField(
                         value = uiState.config.passphrase,
                         onValueChange = { viewModel.updatePassphrase(it) },
-                        label = { Text("私钥密码 (选填，若私钥已加密)") },
+                        label = { Text(stringResource(R.string.passphrase_label)) },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -297,7 +301,7 @@ fun SshConnectionScreen(
 
                 InfoBanner(
                     icon = Icons.Default.Lock,
-                    text = "凭据只保存在本机，并且只发送给你填写的这台服务器。",
+                    text = stringResource(R.string.cred_local_only),
                     container = MaterialTheme.colorScheme.tertiaryContainer,
                     content = MaterialTheme.colorScheme.onTertiaryContainer
                 )
@@ -318,7 +322,7 @@ fun SshConnectionScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("保存配置")
+                    Text(stringResource(R.string.save_config))
                 }
 
                 Button(
@@ -334,9 +338,9 @@ fun SshConnectionScreen(
                             color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
-                        Text("正在连接...")
+                        Text(stringResource(R.string.connecting))
                     } else {
-                        Text("连接 SSH 设备")
+                        Text(stringResource(R.string.connect_device))
                     }
                 }
             }
@@ -344,7 +348,7 @@ fun SshConnectionScreen(
             if (uiState.connectionError != null) {
                 InfoBanner(
                     icon = Icons.Default.Lock,
-                    title = "连接失败",
+                    title = stringResource(R.string.connection_failed_title),
                     text = uiState.connectionError,
                     container = MaterialTheme.colorScheme.errorContainer,
                     content = MaterialTheme.colorScheme.onErrorContainer
@@ -376,7 +380,7 @@ private fun ConnectionHero() {
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "连接到远程主机",
+                    text = stringResource(R.string.ssh_hero_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = heroContent
@@ -384,7 +388,7 @@ private fun ConnectionHero() {
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "支持密码或私钥登录，连接后可浏览文件、编辑文本并打开 Shell 终端。",
+                text = stringResource(R.string.ssh_hero_text),
                 style = MaterialTheme.typography.bodyMedium,
                 color = heroContent.copy(alpha = 0.9f)
             )

@@ -58,11 +58,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.ArchiveEntryItem
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FileType
@@ -106,7 +108,7 @@ fun FileActionMenuDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (targetFile.isDirectory) "文件夹" else "文件 (${formatFileSize(targetFile.size)})",
+                    text = if (targetFile.isDirectory) stringResource(R.string.type_folder) else stringResource(R.string.type_file_size, formatFileSize(targetFile.size)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -125,7 +127,7 @@ fun FileActionMenuDialog(
                 ) {
                     Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("详情")
+                    Text(stringResource(R.string.action_details))
                 }
 
                 if (!targetFile.isDirectory) {
@@ -135,7 +137,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isArchive) "浏览压缩包内容" else "查看 / 编辑内容")
+                        Text(if (isArchive) stringResource(R.string.action_browse_archive) else stringResource(R.string.action_view_edit))
                     }
                 }
 
@@ -150,7 +152,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("在终端中执行")
+                        Text(stringResource(R.string.action_exec_terminal))
                     }
                 }
 
@@ -160,7 +162,7 @@ fun FileActionMenuDialog(
                 ) {
                     Icon(imageVector = Icons.Default.DriveFileRenameOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("重命名")
+                    Text(stringResource(R.string.action_rename))
                 }
 
                 OutlinedButton(
@@ -169,7 +171,7 @@ fun FileActionMenuDialog(
                 ) {
                     Icon(imageVector = Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("压缩")
+                    Text(stringResource(R.string.action_compress))
                 }
 
                 if (!targetFile.isDirectory && isArchive) {
@@ -179,7 +181,7 @@ fun FileActionMenuDialog(
                     ) {
                         Icon(imageVector = Icons.Default.Unarchive, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("解压")
+                        Text(stringResource(R.string.action_extract))
                     }
                 }
 
@@ -193,14 +195,14 @@ fun FileActionMenuDialog(
                 ) {
                     Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("删除")
+                    Text(stringResource(R.string.action_delete))
                 }
             }
         },
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.action_close))
             }
         }
     )
@@ -226,7 +228,7 @@ fun ArchiveInspectorDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "压缩包内部结构预览",
+                    text = stringResource(R.string.archive_structure),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -248,7 +250,7 @@ fun ArchiveInspectorDialog(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(text = "正在解析...")
+                            Text(text = stringResource(R.string.parsing))
                         }
                     }
                 } else if (errorMessage != null) {
@@ -273,7 +275,7 @@ fun ArchiveInspectorDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "压缩包为空",
+                            text = stringResource(R.string.archive_empty),
                             color = MaterialTheme.colorScheme.outline
                         )
                     }
@@ -347,7 +349,7 @@ fun ArchiveInspectorDialog(
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.action_close))
             }
         }
     )
@@ -406,15 +408,15 @@ fun CreateFileDialog(
                         color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
-                    Text("创建中...")
+                    Text(stringResource(R.string.creating))
                 } else {
-                    Text("确认")
+                    Text(stringResource(R.string.action_confirm))
                 }
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
-                Text("取消")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -432,7 +434,7 @@ fun CompressDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "压缩: ${targetFile.name}",
+                text = stringResource(R.string.compress_title, targetFile.name),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -449,7 +451,7 @@ fun CompressDialog(
                 ) {
                     Icon(imageVector = Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("压缩为 .zip")
+                    Text(stringResource(R.string.compress_zip))
                 }
 
                 OutlinedButton(
@@ -459,7 +461,7 @@ fun CompressDialog(
                 ) {
                     Icon(imageVector = Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("压缩为 .tar.gz")
+                    Text(stringResource(R.string.compress_targz))
                 }
 
                 if (isOperating) {
@@ -475,7 +477,7 @@ fun CompressDialog(
                                 .size(18.dp),
                             strokeWidth = 2.dp
                         )
-                        Text("正在压缩...")
+                        Text(stringResource(R.string.compressing))
                     }
                 }
 
@@ -492,7 +494,7 @@ fun CompressDialog(
         confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
-                Text("取消")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -512,7 +514,7 @@ fun RenameFileDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "重命名",
+                text = stringResource(R.string.rename_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -522,7 +524,7 @@ fun RenameFileDialog(
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("新名称") },
+                    label = { Text(stringResource(R.string.new_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -550,15 +552,15 @@ fun RenameFileDialog(
                         color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
-                    Text("重命名中...")
+                    Text(stringResource(R.string.renaming))
                 } else {
-                    Text("确认")
+                    Text(stringResource(R.string.action_confirm))
                 }
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
-                Text("取消")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -576,7 +578,7 @@ fun DeleteConfirmDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "确认删除",
+                text = stringResource(R.string.delete_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
@@ -585,13 +587,13 @@ fun DeleteConfirmDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "确定要删除 '${targetFile.name}' 吗？",
+                    text = stringResource(R.string.delete_prompt, targetFile.name),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "永久删除，操作不可撤销！",
+                    text = stringResource(R.string.delete_warning),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -623,15 +625,15 @@ fun DeleteConfirmDialog(
                         color = MaterialTheme.colorScheme.onError,
                         strokeWidth = 2.dp
                     )
-                    Text("删除中...")
+                    Text(stringResource(R.string.deleting))
                 } else {
-                    Text("确认删除")
+                    Text(stringResource(R.string.confirm_delete))
                 }
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, enabled = !isOperating) {
-                Text("取消")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -671,7 +673,7 @@ fun FileDetailDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "文件详情",
+                text = stringResource(R.string.file_details),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -691,13 +693,13 @@ fun FileDetailDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(text = "名称: ${targetFile.name}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text(text = "路径: $displayPath", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        Text(text = "类型: ${if (targetFile.isDirectory) "文件夹" else targetFile.fileType.name}", style = MaterialTheme.typography.bodySmall)
-                        Text(text = "大小: ${if (targetFile.isDirectory) "-" else formatFileSize(targetFile.size)}", style = MaterialTheme.typography.bodySmall)
-                        Text(text = "权限位: ${targetFile.permissions}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                        Text(text = "所有者(UID:GID): ${targetFile.owner}:${targetFile.group}", style = MaterialTheme.typography.bodySmall)
-                        Text(text = "修改时间: ${formatDate(targetFile.modifiedTime)}", style = MaterialTheme.typography.bodySmall)
+                        Text(text = stringResource(R.string.detail_name, targetFile.name), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text(text = stringResource(R.string.detail_path, displayPath), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        Text(text = stringResource(R.string.detail_type, if (targetFile.isDirectory) stringResource(R.string.type_folder) else targetFile.fileType.name), style = MaterialTheme.typography.bodySmall)
+                        Text(text = stringResource(R.string.detail_size, if (targetFile.isDirectory) "-" else formatFileSize(targetFile.size)), style = MaterialTheme.typography.bodySmall)
+                        Text(text = stringResource(R.string.detail_permissions, targetFile.permissions), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                        Text(text = stringResource(R.string.detail_owner, targetFile.owner, targetFile.group), style = MaterialTheme.typography.bodySmall)
+                        Text(text = stringResource(R.string.detail_modified, formatDate(targetFile.modifiedTime)), style = MaterialTheme.typography.bodySmall)
                     }
                 }
 
@@ -728,7 +730,7 @@ fun FileDetailDialog(
                         modifier = Modifier.clickable { autoCalc = !autoCalc }
                     ) {
                         Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it })
-                        Text("下次直接计算", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.checksum_next_time), style = MaterialTheme.typography.bodyMedium)
                     }
 
                     if (checksumResult == null && !isCalculating) {
@@ -736,7 +738,7 @@ fun FileDetailDialog(
                             onClick = onCalculateChecksum,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("校验")
+                            Text(stringResource(R.string.checksum_action))
                         }
                     } else if (isCalculating) {
                         Box(
@@ -748,14 +750,14 @@ fun FileDetailDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "正在计算校验码...")
+                                Text(text = stringResource(R.string.checksum_calculating))
                             }
                         }
                     } else if (checksumResult != null) {
                         val currentHash = if (hashType == "MD5") checksumResult.md5 else checksumResult.sha256
 
                         Text(
-                            text = "$hashType 校验结果:",
+                            text = stringResource(R.string.checksum_result, hashType),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -782,7 +784,7 @@ fun FileDetailDialog(
                         OutlinedTextField(
                             value = expectedHash,
                             onValueChange = { expectedHash = it },
-                            label = { Text("输入期望的哈希值进行校验") },
+                            label = { Text(stringResource(R.string.checksum_expected)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
@@ -797,7 +799,7 @@ fun FileDetailDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = if (isMatch) "✓ 校验通过：输入哈希值与文件完全匹配" else "✕ 校验失败：输入哈希值不匹配",
+                                    text = if (isMatch) stringResource(R.string.checksum_match) else stringResource(R.string.checksum_mismatch),
                                     color = if (isMatch) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.padding(10.dp),
                                     style = MaterialTheme.typography.bodySmall,
@@ -825,16 +827,16 @@ fun FileDetailDialog(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val clip = ClipData.newPlainText(hashType, currentHash)
                         clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, "已复制 $hashType", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.copied_hash, hashType), Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Text("复制 $hashType")
+                    Text(stringResource(R.string.copy_hash, hashType))
                 }
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.action_close))
             }
         }
     )

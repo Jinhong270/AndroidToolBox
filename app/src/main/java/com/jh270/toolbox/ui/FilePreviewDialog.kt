@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.FilePreview
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -133,7 +135,7 @@ fun FileEditorScreen(
             color = MaterialTheme.colorScheme.background
         ) {
             ToolBoxScaffold(
-                title = filePreview?.name ?: if (isLoading) "正在打开" else "文件",
+                title = filePreview?.name ?: if (isLoading) stringResource(R.string.opening_file) else stringResource(R.string.file_fallback),
                 onBack = onDismiss,
                 actions = {
                     if (filePreview?.content != null) {
@@ -141,10 +143,10 @@ fun FileEditorScreen(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("FileContent", editedText))
-                                Toast.makeText(context, "已复制文本内容到剪贴板", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.copied_text), Toast.LENGTH_SHORT).show()
                             }
                         ) {
-                            Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "复制")
+                            Icon(imageVector = Icons.Default.ContentCopy, contentDescription = stringResource(R.string.cd_copy))
                         }
                     }
                     if (writable != null) {
@@ -158,7 +160,7 @@ fun FileEditorScreen(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Icon(imageVector = Icons.Default.Save, contentDescription = "保存")
+                                Icon(imageVector = Icons.Default.Save, contentDescription = stringResource(R.string.cd_save))
                             }
                         }
                     }
@@ -217,14 +219,14 @@ fun FileEditorScreen(
                             if (filePreview.truncated) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "只载入了前 200 KB。继续保存会截断原文件，因此不能保存。",
+                                    text = stringResource(R.string.preview_truncated),
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             } else if (filePreview.editable && !allowSave) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "压缩包里的文件只能查看。",
+                                    text = stringResource(R.string.archive_view_only),
                                     color = MaterialTheme.colorScheme.outline,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -251,7 +253,7 @@ fun FileEditorScreen(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     CircularProgressIndicator()
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Text(text = "正在获取远程文件内容...")
+                                    Text(text = stringResource(R.string.loading_remote_content))
                                 }
                             }
                         }

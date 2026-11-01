@@ -53,7 +53,7 @@ object RdapRecords {
                 registrar = mergeRegistrar(registrar, registrarInfo(entity))
             }
             contactRole(roles)?.let { role ->
-                contactInfo(entity, role.first, role.second)?.let { contacts += it }
+                contactInfo(entity, role)?.let { contacts += it }
             }
         }
         val record = DomainRecord(
@@ -150,8 +150,8 @@ object RdapRecords {
         if (secure == null) return null
         val signed = secure.optBoolean("delegationSigned", false) ||
             (secure.optJSONArray("dsData")?.length() ?: 0) > 0
-        if (signed) return "已签名"
-        if (secure.has("delegationSigned")) return "未签名"
+        if (signed) return "signed"
+        if (secure.has("delegationSigned")) return "unsigned"
         return null
     }
 
@@ -174,14 +174,9 @@ object RdapRecords {
         return values
     }
 
-    private fun contactRole(roles: Set<String>): Pair<String, String>? {
-        val order = listOf(
-            "registrant" to "注册人",
-            "administrative" to "管理联系人",
-            "technical" to "技术联系人",
-            "billing" to "账单联系人"
-        )
-        return order.firstOrNull { it.first in roles }
+    private fun contactRole(roles: Set<String>): String? {
+        val order = listOf("registrant", "administrative", "technical", "billing")
+        return order.firstOrNull { it in roles }
     }
 
     private fun registrarInfo(entity: JSONObject): RegistrarInfo? {
@@ -223,7 +218,7 @@ object RdapRecords {
         return null
     }
 
-    private fun contactInfo(entity: JSONObject, role: String, label: String): ContactInfo? {
+    private fun contactInfo(entity: JSONObject, role: String): ContactInfo? {
         val fields = vcard(entity)
         val name = fieldText(fields, "fn")
         val organization = fieldText(fields, "org")
@@ -235,7 +230,7 @@ object RdapRecords {
             return null
         }
         val shownOrganization = organization?.takeUnless { it.equals(name, ignoreCase = true) }
-        return ContactInfo(role, label, name, shownOrganization, email, phone, country, redacted)
+        return ContactInfo(role, name, shownOrganization, email, phone, country, redacted)
     }
 
     private fun country(fields: List<VcardField>): String? {

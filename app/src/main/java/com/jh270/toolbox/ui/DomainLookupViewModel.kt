@@ -3,9 +3,12 @@ package com.jh270.toolbox.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jh270.toolbox.R
 import com.jh270.toolbox.domain.DomainLookupClient
+import com.jh270.toolbox.domain.DomainNames
 import com.jh270.toolbox.domain.DomainRecord
 import com.jh270.toolbox.domain.LookupOutcome
+import com.jh270.toolbox.domain.LookupProblem
 import com.jh270.toolbox.domain.PlatformLookupTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +35,30 @@ class DomainLookupViewModel(app: Application) : AndroidViewModel(app) {
     val uiState: StateFlow<DomainLookupUiState> = _uiState.asStateFlow()
     private var job: Job? = null
 
+    private fun text(id: Int, vararg args: Any): String = getApplication<Application>().getString(id, *args)
+
+    private fun nameMessage(problem: DomainNames.NameProblem): String {
+        val id = when (problem) {
+            DomainNames.NameProblem.EMPTY -> R.string.err_domain_empty
+            DomainNames.NameProblem.SPACE -> R.string.err_domain_space
+            DomainNames.NameProblem.IP -> R.string.err_domain_ip
+            DomainNames.NameProblem.BAD_CHARS -> R.string.err_domain_chars
+            DomainNames.NameProblem.TOO_LONG -> R.string.err_domain_long
+            DomainNames.NameProblem.INCOMPLETE -> R.string.err_domain_incomplete
+        }
+        return text(id)
+    }
+
+    private fun failureMessage(problem: LookupProblem, detail: String): String {
+        return when (problem) {
+            LookupProblem.RATE_LIMIT -> text(R.string.err_rate_limit)
+            LookupProblem.FORBIDDEN -> text(R.string.err_forbidden)
+            LookupProblem.IANA_DOWN -> text(R.string.err_iana)
+            LookupProblem.NO_WHOIS -> text(R.string.err_no_whois)
+            LookupProblem.REGISTRY_DOWN -> text(R.string.err_registry, detail)
+        }
+    }
+
     fun updateInput(value: String) {
         _uiState.update { it.copy(input = value, message = null, error = false) }
     }
@@ -40,7 +67,7 @@ class DomainLookupViewModel(app: Application) : AndroidViewModel(app) {
         val text = raw.trim()
         if (text.isEmpty()) {
             _uiState.update {
-                it.copy(input = "", loading = false, record = null, message = "请输入域名", error = true)
+                it.copy(input = "", loading = false, record = null, message = text(R.string.err_domain_empty), error = true)
             }
             return
         }
@@ -64,19 +91,19 @@ class DomainLookupViewModel(app: Application) : AndroidViewModel(app) {
                     is LookupOutcome.NotFound -> state.copy(
                         loading = false,
                         record = null,
-                        message = "注册局没有 ${outcome.domain} 的注册记录",
+                        message = text(R.string.err_not_registered, outcome.domain),
                         error = false
                     )
                     is LookupOutcome.Invalid -> state.copy(
                         loading = false,
                         record = null,
-                        message = outcome.message,
+                        message = nameMessage(outcome.problem),
                         error = true
                     )
                     is LookupOutcome.Failure -> state.copy(
                         loading = false,
                         record = null,
-                        message = outcome.message,
+                        message = failureMessage(outcome.problem, outcome.detail),
                         error = true
                     )
                 }

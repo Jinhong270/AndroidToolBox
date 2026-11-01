@@ -40,8 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.AppInfo
 
 @Composable
@@ -54,13 +56,13 @@ fun ToolBoxHomeScreen(
     LaunchedEffect(Unit) { visible = true }
 
     ToolBoxScaffold(
-        title = AppInfo.NAME,
-        subtitle = "SSH · 域名查询",
+        title = stringResource(R.string.app_name),
+        subtitle = stringResource(R.string.home_subtitle),
         actions = {
             IconButton(onClick = onOpenSettings) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "设置"
+                    contentDescription = stringResource(R.string.cd_settings)
                 )
             }
         }
@@ -78,13 +80,13 @@ fun ToolBoxHomeScreen(
             ) {
                 item { HeroPanel() }
 
-                item { SectionHeader("工具") }
+                item { SectionHeader(stringResource(R.string.section_tools)) }
 
                 item {
                     NavCard(
-                        title = "SSH 文件管理器",
-                        subtitle = "连接 · 文件 · 终端",
-                        description = "密码或私钥登录，浏览与编辑远程文件，压缩解压，校验哈希。",
+                        title = stringResource(R.string.home_ssh_title),
+                        subtitle = stringResource(R.string.home_ssh_subtitle),
+                        description = stringResource(R.string.home_ssh_desc),
                         icon = Icons.AutoMirrored.Filled.InsertDriveFile,
                         onClick = onSelectSshFileManager
                     )
@@ -92,9 +94,9 @@ fun ToolBoxHomeScreen(
 
                 item {
                     NavCard(
-                        title = "域名查询",
-                        subtitle = "RDAP · WHOIS",
-                        description = "查询注册局公开信息：注册商、到期时间、域名服务器与状态。支持国家域名和 .com、.org、.dev 等全部后缀。",
+                        title = stringResource(R.string.home_domain_title),
+                        subtitle = stringResource(R.string.home_domain_subtitle),
+                        description = stringResource(R.string.home_domain_desc),
                         icon = Icons.Default.Public,
                         onClick = onSelectDomainLookup,
                         accentContainer = MaterialTheme.colorScheme.tertiaryContainer,
@@ -104,9 +106,9 @@ fun ToolBoxHomeScreen(
 
                 item {
                     NavCard(
-                        title = "设置",
-                        subtitle = "外观 · 关于 · 使用协议",
-                        description = "调整终端配色，查看版本信息与开源许可。",
+                        title = stringResource(R.string.home_settings_title),
+                        subtitle = stringResource(R.string.home_settings_subtitle),
+                        description = stringResource(R.string.home_settings_desc),
                         icon = Icons.Default.Settings,
                         onClick = onOpenSettings,
                         accentContainer = MaterialTheme.colorScheme.secondaryContainer,
@@ -114,13 +116,13 @@ fun ToolBoxHomeScreen(
                     )
                 }
 
-                item { SectionHeader("安全与开源") }
+                item { SectionHeader(stringResource(R.string.section_security)) }
 
                 item {
                     InfoBanner(
                         icon = Icons.Default.Lock,
-                        title = "凭据只发给你连接的那台服务器",
-                        text = "密码与私钥仅保存在本机，应用不会把它们上传到任何第三方服务器。",
+                        title = stringResource(R.string.home_cred_title),
+                        text = stringResource(R.string.home_cred_text),
                         container = MaterialTheme.colorScheme.tertiaryContainer,
                         content = MaterialTheme.colorScheme.onTertiaryContainer
                     )
@@ -132,7 +134,7 @@ fun ToolBoxHomeScreen(
 
                 item {
                     Text(
-                        text = "ToolBox · 开源免费 · 无广告 · 无内购",
+                        text = stringResource(R.string.home_footer),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier
@@ -165,13 +167,13 @@ private fun HeroPanel() {
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = AppInfo.NAME,
+                        text = stringResource(R.string.app_name),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = heroContent
                     )
                     Text(
-                        text = AppInfo.TAGLINE,
+                        text = stringResource(R.string.tagline),
                         style = MaterialTheme.typography.labelMedium,
                         color = heroContent.copy(alpha = 0.8f)
                     )
@@ -181,7 +183,7 @@ private fun HeroPanel() {
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "两个各自独立的工具：连接远程主机管理文件和终端，或向注册局查询域名的公开注册信息。",
+                text = stringResource(R.string.home_hero_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = heroContent.copy(alpha = 0.92f)
             )
@@ -189,9 +191,9 @@ private fun HeroPanel() {
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HeroChip(icon = Icons.Default.VerifiedUser, text = "开源免费", content = heroContent)
-                HeroChip(icon = Icons.Default.Cloud, text = "无广告", content = heroContent)
-                HeroChip(icon = Icons.Default.Terminal, text = "本地运行", content = heroContent)
+                HeroChip(icon = Icons.Default.VerifiedUser, text = stringResource(R.string.chip_open_source), content = heroContent)
+                HeroChip(icon = Icons.Default.Cloud, text = stringResource(R.string.chip_no_ads), content = heroContent)
+                HeroChip(icon = Icons.Default.Terminal, text = stringResource(R.string.chip_on_device), content = heroContent)
             }
         }
     }
@@ -252,7 +254,7 @@ private fun OpenSourceCard(onClick: () -> Unit) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "完全开源，永久免费",
+                    text = stringResource(R.string.home_free_title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )

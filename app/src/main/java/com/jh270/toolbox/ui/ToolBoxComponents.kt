@@ -36,11 +36,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
+import com.jh270.toolbox.R
 import com.jh270.toolbox.ui.theme.HeroEndDark
 import com.jh270.toolbox.ui.theme.HeroEndLight
 import com.jh270.toolbox.ui.theme.HeroOnDark
@@ -104,7 +106,7 @@ internal fun ToolBoxScaffold(
                             IconButton(onClick = onBack) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "返回"
+                                    contentDescription = stringResource(R.string.cd_back)
                                 )
                             }
                         }

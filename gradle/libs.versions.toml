@@ -5,9 +5,6 @@ lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
-jsch = "0.2.23"
-eddsa = "0.3.0"
-bcprov = "1.78"
 commonsCompress = "1.26.2"
 xz = "1.9"
 
@@ -23,10 +20,6 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
-jsch = { group = "com.github.mwiede", name = "jsch", version.ref = "jsch" }
-eddsa = { group = "net.i2p.crypto", name = "eddsa", version.ref = "eddsa" }
-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bcprov" }
-bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bcprov" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 

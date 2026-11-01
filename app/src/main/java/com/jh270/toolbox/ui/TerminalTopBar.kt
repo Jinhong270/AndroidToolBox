@@ -21,10 +21,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,7 +45,7 @@ internal fun TerminalTopBar(
             IconButton(onClick = onBack) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.cd_back),
                     tint = foreground
                 )
             }
@@ -65,7 +67,7 @@ internal fun TerminalTopBar(
                         color = foreground
                     )
                     Text(
-                        text = "SSH Shell Terminal",
+                        text = stringResource(R.string.terminal_subtitle),
                         fontSize = 10.sp,
                         color = dim
                     )
@@ -92,7 +94,7 @@ internal fun TerminalTopBar(
             IconButton(onClick = onClear) {
                 Icon(
                     imageVector = Icons.Default.DeleteSweep,
-                    contentDescription = "清屏",
+                    contentDescription = stringResource(R.string.cd_clear_screen),
                     tint = dim
                 )
             }

@@ -4,7 +4,9 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
-data class ExpiryHint(val text: String, val urgent: Boolean)
+enum class ExpiryPhase { DUE_TODAY, EXPIRED_TODAY, REMAINING, EXPIRED }
+
+data class ExpiryHint(val phase: ExpiryPhase, val days: Long, val urgent: Boolean)
 
 object DomainDates {
     private val months = mapOf(
@@ -54,15 +56,14 @@ object DomainDates {
         val millis = parse(raw) ?: return null
         val delta = millis - now
         val days = delta / 86_400_000L
-        val text = when {
-            delta >= 0 && days == 0L -> "今天到期"
-            delta < 0 && days == 0L -> "已过期"
-            days == 1L -> "还有 1 天到期"
-            days > 1L -> "还有 $days 天到期"
-            days == -1L -> "已过期 1 天"
-            else -> "已过期 ${-days} 天"
+        val phase = when {
+            delta >= 0 && days == 0L -> ExpiryPhase.DUE_TODAY
+            delta < 0 && days == 0L -> ExpiryPhase.EXPIRED_TODAY
+            days > 0L -> ExpiryPhase.REMAINING
+            else -> ExpiryPhase.EXPIRED
         }
-        return ExpiryHint(text, delta < 30L * 86_400_000L)
+        val count = if (days < 0) -days else days
+        return ExpiryHint(phase, count, delta < 30L * 86_400_000L)
     }
 
     private fun stripOffset(raw: String): Pair<String, Int> {

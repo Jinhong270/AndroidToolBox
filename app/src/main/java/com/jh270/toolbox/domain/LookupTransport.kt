@@ -25,8 +25,8 @@ class PlatformLookupTransport : LookupTransport {
         var current = url
         val seen = HashSet<String>()
         for (hop in 0 until 6) {
-            if (!RegistryHosts.isAllowedRegistryUrl(current)) throw IOException("拒绝访问非 HTTPS 注册局地址")
-            if (!seen.add(current)) throw IOException("重定向循环")
+            if (!RegistryHosts.isAllowedRegistryUrl(current)) throw IOException("refused non-https registry url")
+            if (!seen.add(current)) throw IOException("redirect loop")
             val connection = open(current, headers)
             try {
                 val code = try {
@@ -35,7 +35,7 @@ class PlatformLookupTransport : LookupTransport {
                     404
                 }
                 if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                    val location = connection.getHeaderField("Location") ?: throw IOException("重定向缺少地址")
+                    val location = connection.getHeaderField("Location") ?: throw IOException("redirect missing location")
                     current = URL(URL(current), location).toString()
                     continue
                 }
@@ -46,11 +46,11 @@ class PlatformLookupTransport : LookupTransport {
                 connection.disconnect()
             }
         }
-        throw IOException("重定向次数过多")
+        throw IOException("too many redirects")
     }
 
     override fun whois(host: String, query: String): String {
-        if (!RegistryHosts.isPublicHost(host)) throw IOException("拒绝连接这个 WHOIS 服务器")
+        if (!RegistryHosts.isPublicHost(host)) throw IOException("refused whois host")
         val socket = Socket()
         try {
             socket.connect(InetSocketAddress(host, 43), 15_000)
@@ -69,9 +69,9 @@ class PlatformLookupTransport : LookupTransport {
                     raw.write(buffer, 0, count)
                 }
             } catch (e: SocketTimeoutException) {
-                if (raw.size() == 0) throw IOException("WHOIS 服务器没有返回数据")
+                if (raw.size() == 0) throw IOException("empty whois response")
             }
-            if (raw.size() == 0) throw IOException("WHOIS 服务器没有返回数据")
+            if (raw.size() == 0) throw IOException("empty whois response")
             return decode(raw.toByteArray())
         } finally {
             socket.close()

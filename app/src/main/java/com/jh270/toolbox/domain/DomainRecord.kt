@@ -8,32 +8,32 @@ enum class RecordSource { RDAP, WHOIS }
 data class DomainStatus(val code: String, val label: String) {
     companion object {
         private val labels = mapOf(
-            "ok" to "正常",
-            "active" to "正常",
-            "inactive" to "未激活",
-            "associated" to "已关联",
-            "locked" to "已锁定",
-            "client delete prohibited" to "注册商禁止删除",
-            "client transfer prohibited" to "注册商禁止转移",
-            "client update prohibited" to "注册商禁止更新",
-            "client renew prohibited" to "注册商禁止续费",
-            "client hold" to "注册商暂停解析",
-            "server delete prohibited" to "注册局禁止删除",
-            "server transfer prohibited" to "注册局禁止转移",
-            "server update prohibited" to "注册局禁止更新",
-            "server renew prohibited" to "注册局禁止续费",
-            "server hold" to "注册局暂停解析",
-            "pending delete" to "等待删除",
-            "pending transfer" to "等待转移",
-            "pending update" to "等待更新",
-            "pending create" to "等待创建",
-            "pending renew" to "等待续费",
-            "pending restore" to "等待恢复",
-            "redemption period" to "赎回期",
-            "add period" to "新注册宽限期",
-            "auto renew period" to "自动续费宽限期",
-            "renew period" to "续费宽限期",
-            "transfer period" to "转移宽限期"
+            "ok" to "Active",
+            "active" to "Active",
+            "inactive" to "Inactive",
+            "associated" to "Associated",
+            "locked" to "Locked",
+            "client delete prohibited" to "Registrar delete prohibited",
+            "client transfer prohibited" to "Registrar transfer prohibited",
+            "client update prohibited" to "Registrar update prohibited",
+            "client renew prohibited" to "Registrar renew prohibited",
+            "client hold" to "Registrar hold",
+            "server delete prohibited" to "Registry delete prohibited",
+            "server transfer prohibited" to "Registry transfer prohibited",
+            "server update prohibited" to "Registry update prohibited",
+            "server renew prohibited" to "Registry renew prohibited",
+            "server hold" to "Registry hold",
+            "pending delete" to "Pending delete",
+            "pending transfer" to "Pending transfer",
+            "pending update" to "Pending update",
+            "pending create" to "Pending create",
+            "pending renew" to "Pending renew",
+            "pending restore" to "Pending restore",
+            "redemption period" to "Redemption period",
+            "add period" to "Add grace period",
+            "auto renew period" to "Auto-renew grace period",
+            "renew period" to "Renew grace period",
+            "transfer period" to "Transfer grace period"
         )
 
         fun from(raw: String): DomainStatus? {
@@ -71,7 +71,6 @@ data class NameServerInfo(
 
 data class ContactInfo(
     val role: String,
-    val roleLabel: String,
     val name: String?,
     val organization: String?,
     val email: String?,
@@ -81,12 +80,6 @@ data class ContactInfo(
 ) {
     val visible: Boolean
         get() = listOf(name, organization, email, phone, country).any { !it.isNullOrBlank() }
-
-    fun summary(): String {
-        if (!visible) return "已隐藏"
-        return listOfNotNull(name, organization, email, phone, country?.let { "国家/地区 $it" })
-            .joinToString("，")
-    }
 }
 
 data class DomainRecord(
@@ -108,44 +101,6 @@ data class DomainRecord(
 ) {
     val sparse: Boolean
         get() = registrar?.name.isNullOrBlank() && registeredAt.isNullOrBlank() && nameservers.isEmpty()
-
-    fun summary(now: Long = System.currentTimeMillis()): String {
-        val lines = mutableListOf<String>()
-        lines += "域名: $unicodeName"
-        if (!asciiName.equals(unicodeName, ignoreCase = true)) lines += "Punycode: $asciiName"
-        if (statuses.isNotEmpty()) lines += "状态: " + statuses.joinToString("；") { it.label }
-        registrar?.name?.let { lines += "注册商: $it" }
-        registrar?.ianaId?.let { lines += "注册商编号: $it" }
-        registrar?.url?.let { lines += "注册商网址: $it" }
-        registrar?.abuseEmail?.let { lines += "滥用联系邮箱: $it" }
-        registrar?.abusePhone?.let { lines += "滥用联系电话: $it" }
-        handle?.let { lines += "注册编号: $it" }
-        registeredAt?.let { lines += "注册时间: ${DomainDates.format(it)}" }
-        expiresAt?.let { rawDate ->
-            val hint = DomainDates.expiryHint(rawDate, now)?.text
-            val suffix = if (hint == null) "" else "（$hint）"
-            lines += "到期时间: ${DomainDates.format(rawDate)}$suffix"
-        }
-        changedAt?.let { lines += "最近变更: ${DomainDates.format(it)}" }
-        databaseUpdatedAt?.let { lines += "数据更新: ${DomainDates.format(it)}" }
-        dnssec?.let { lines += "DNSSEC: $it" }
-        if (nameservers.isEmpty()) {
-            lines += "域名服务器: 未提供"
-        } else {
-            lines += "域名服务器:"
-            nameservers.forEach { server ->
-                val addresses = if (server.addresses.isEmpty()) "" else "  ${server.addresses.joinToString(" ")}"
-                lines += "  ${server.name}$addresses"
-            }
-        }
-        if (contacts.isEmpty()) {
-            lines += "联系人: 未公开"
-        } else {
-            contacts.forEach { contact -> lines += "${contact.roleLabel}: ${contact.summary()}" }
-        }
-        lines += "来源: ${sourceLabel()}"
-        return lines.joinToString("\n")
-    }
 }
 
 fun DomainRecord.sourceLabel(): String {

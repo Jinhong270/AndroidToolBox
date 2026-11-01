@@ -2,11 +2,13 @@ package com.jh270.toolbox.domain
 
 import java.io.IOException
 
+enum class LookupProblem { RATE_LIMIT, FORBIDDEN, IANA_DOWN, NO_WHOIS, REGISTRY_DOWN }
+
 sealed class LookupOutcome {
     data class Success(val record: DomainRecord) : LookupOutcome()
     data class NotFound(val domain: String) : LookupOutcome()
-    data class Invalid(val message: String) : LookupOutcome()
-    data class Failure(val message: String) : LookupOutcome()
+    data class Invalid(val problem: DomainNames.NameProblem) : LookupOutcome()
+    data class Failure(val problem: LookupProblem, val detail: String = "") : LookupOutcome()
 }
 
 class DomainLookupClient(
@@ -19,7 +21,7 @@ class DomainLookupClient(
 
     fun lookup(raw: String): LookupOutcome {
         val domain = when (val parsed = DomainNames.parse(raw)) {
-            is DomainNames.Parse.Invalid -> return LookupOutcome.Invalid(parsed.message)
+            is DomainNames.Parse.Invalid -> return LookupOutcome.Invalid(parsed.problem)
             is DomainNames.Parse.Ok -> parsed
         }
         val bases = try {
@@ -94,8 +96,8 @@ class DomainLookupClient(
                 is RdapRecords.Parsed.Rejected -> return@forEach
             }
         }
-        if (rateLimited) return LookupOutcome.Failure("注册局限制了查询频率，请稍后再试")
-        if (forbidden) return LookupOutcome.Failure("注册局拒绝了这次查询")
+        if (rateLimited) return LookupOutcome.Failure(LookupProblem.RATE_LIMIT)
+        if (forbidden) return LookupOutcome.Failure(LookupProblem.FORBIDDEN)
         return null
     }
 
@@ -117,10 +119,10 @@ class DomainLookupClient(
         val iana = try {
             transport.whois("whois.iana.org", domain.asciiName)
         } catch (e: IOException) {
-            return LookupOutcome.Failure("无法连接 IANA 的 WHOIS 服务，请检查网络")
+            return LookupOutcome.Failure(LookupProblem.IANA_DOWN)
         }
         val server = WhoisRecords.ianaServer(iana)
-            ?: return LookupOutcome.Failure("IANA 没有公布这个后缀的 WHOIS 服务器")
+            ?: return LookupOutcome.Failure(LookupProblem.NO_WHOIS)
         return queryRegistry(domain, server)
     }
 
@@ -128,7 +130,7 @@ class DomainLookupClient(
         val text = try {
             transport.whois(server, WhoisRecords.queryFor(server, domain.asciiName))
         } catch (e: IOException) {
-            return LookupOutcome.Failure("无法连接 $server")
+            return LookupOutcome.Failure(LookupProblem.REGISTRY_DOWN, server)
         }
         if (WhoisRecords.isNotFound(text, domain.asciiName)) return LookupOutcome.NotFound(domain.unicodeName)
         val registry = WhoisRecords.parse(domain, text, server)

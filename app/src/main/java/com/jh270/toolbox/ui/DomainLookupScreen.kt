@@ -47,12 +47,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jh270.toolbox.R
 import com.jh270.toolbox.domain.ContactInfo
 import com.jh270.toolbox.domain.DomainDates
 import com.jh270.toolbox.domain.DomainRecord
@@ -66,8 +68,8 @@ fun DomainLookupScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     ToolBoxScaffold(
-        title = "域名查询",
-        subtitle = "注册局公开数据",
+        title = stringResource(R.string.domain_title),
+        subtitle = stringResource(R.string.domain_subtitle),
         onBack = onBack
     ) { padding ->
         LazyColumn(
@@ -92,7 +94,11 @@ fun DomainLookupScreen(
                 state.message != null -> item {
                     InfoBanner(
                         icon = Icons.Default.Public,
-                        title = if (state.error) "无法查询" else "无注册记录",
+                        title = if (state.error) {
+                            stringResource(R.string.domain_query_failed)
+                        } else {
+                            stringResource(R.string.domain_not_registered_title)
+                        },
                         text = state.message!!,
                         container = if (state.error) {
                             MaterialTheme.colorScheme.errorContainer
@@ -125,8 +131,8 @@ private fun SearchPanel(
             value = input,
             onValueChange = onInput,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("域名") },
-            placeholder = { Text("example.com、example.co.uk、例子.中国") },
+            label = { Text(stringResource(R.string.domain_label)) },
+            placeholder = { Text(stringResource(R.string.domain_placeholder)) },
             singleLine = true,
             shape = MaterialTheme.shapes.small,
             keyboardOptions = KeyboardOptions(
@@ -149,15 +155,15 @@ private fun SearchPanel(
                     color = MaterialTheme.colorScheme.onPrimary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("查询中")
+                Text(stringResource(R.string.domain_querying))
             } else {
-                Text("查询")
+                Text(stringResource(R.string.domain_query))
             }
         }
         if (recent.isNotEmpty() && !loading) {
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "最近查询",
+                text = stringResource(R.string.domain_recent),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -194,8 +200,8 @@ private fun RecentRow(recent: List<String>, onPick: (String) -> Unit) {
 private fun IntroBlock() {
     InfoBanner(
         icon = Icons.Default.Public,
-        title = "直接查询官方注册数据",
-        text = "支持国家域名和 .com、.org、.dev 等全部后缀。应用先读取 IANA 公布的 RDAP 服务表，再向负责该后缀的注册局查询；没有 RDAP 的后缀改用 IANA 公布的 WHOIS 服务器。查询从你的设备直接发出，不经过作者的服务器，也不使用第三方查询接口。"
+        title = stringResource(R.string.domain_intro_title),
+        text = stringResource(R.string.domain_intro_text)
     )
 }
 
@@ -206,7 +212,7 @@ private fun LoadingBlock() {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "正在向注册局查询",
+                text = stringResource(R.string.domain_loading),
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -220,22 +226,22 @@ private fun DomainResult(record: DomainRecord) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         DomainTitle(record)
         if (record.statuses.isNotEmpty()) StatusRow(record)
-        SectionHeader("注册信息")
+        SectionHeader(stringResource(R.string.section_registration))
         OutlinedPanel {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                record.registrar?.name?.let { DetailLine("注册商", it) }
-                record.registrar?.ianaId?.let { DetailLine("注册商编号", it) }
+                record.registrar?.name?.let { DetailLine(stringResource(R.string.field_registrar), it) }
+                record.registrar?.ianaId?.let { DetailLine(stringResource(R.string.field_registrar_id), it) }
                 record.registrar?.url?.let { value ->
-                    DetailLine("网址", value, link = true) { openExternalLink(context, value) }
+                    DetailLine(stringResource(R.string.field_url), value, link = true) { openExternalLink(context, value) }
                 }
                 record.registrar?.abuseEmail?.let { value ->
-                    DetailLine("滥用联系邮箱", value, link = true) {
+                    DetailLine(stringResource(R.string.field_abuse_email), value, link = true) {
                         openExternalLink(context, "mailto:$value")
                     }
                 }
-                record.registrar?.abusePhone?.let { DetailLine("滥用联系电话", it) }
-                record.handle?.let { DetailLine("注册编号", it) }
-                record.registeredAt?.let { DetailLine("注册时间", DomainDates.format(it)) }
+                record.registrar?.abusePhone?.let { DetailLine(stringResource(R.string.field_abuse_phone), it) }
+                record.handle?.let { DetailLine(stringResource(R.string.field_handle), it) }
+                record.registeredAt?.let { DetailLine(stringResource(R.string.field_registered), DomainDates.format(it)) }
                 record.expiresAt?.let { rawDate ->
                     val hint = DomainDates.expiryHint(rawDate)
                     val color = if (hint?.urgent == true) {
@@ -246,18 +252,20 @@ private fun DomainResult(record: DomainRecord) {
                     val text = if (hint == null) {
                         DomainDates.format(rawDate)
                     } else {
-                        "${DomainDates.format(rawDate)} · ${hint.text}"
+                        "${DomainDates.format(rawDate)} · ${context.expiryText(hint)}"
                     }
-                    DetailLine("到期时间", text, valueColor = color)
+                    DetailLine(stringResource(R.string.field_expires), text, valueColor = color)
                 }
-                record.changedAt?.let { DetailLine("最近变更", DomainDates.format(it)) }
-                record.databaseUpdatedAt?.let { DetailLine("数据更新", DomainDates.format(it)) }
-                record.dnssec?.let { DetailLine("DNSSEC", it) }
-                if (record.contacts.isEmpty()) DetailLine("联系人", "注册局未公开")
+                record.changedAt?.let { DetailLine(stringResource(R.string.field_changed), DomainDates.format(it)) }
+                record.databaseUpdatedAt?.let { DetailLine(stringResource(R.string.field_updated), DomainDates.format(it)) }
+                record.dnssec?.let { DetailLine("DNSSEC", context.dnssecText(it)) }
+                if (record.contacts.isEmpty()) {
+                    DetailLine(stringResource(R.string.field_contacts), stringResource(R.string.contacts_private))
+                }
             }
         }
         if (record.nameservers.isNotEmpty()) {
-            SectionHeader("域名服务器")
+            SectionHeader(stringResource(R.string.section_nameservers))
             OutlinedPanel {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     record.nameservers.forEach { server ->
@@ -283,7 +291,7 @@ private fun DomainResult(record: DomainRecord) {
             }
         }
         if (record.contacts.isNotEmpty()) {
-            SectionHeader("联系人")
+            SectionHeader(stringResource(R.string.section_contacts))
             OutlinedPanel {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     record.contacts.forEach { contact -> ContactBlock(contact) }
@@ -293,11 +301,11 @@ private fun DomainResult(record: DomainRecord) {
         if (record.sparse) {
             InfoBanner(
                 icon = Icons.Default.Public,
-                title = "结构化字段很少",
-                text = "注册局返回了原文，但里面几乎没有标准字段。可以打开原始记录查看全文。"
+                title = stringResource(R.string.domain_sparse_title),
+                text = stringResource(R.string.domain_sparse_text)
             )
         }
-        SectionHeader("数据来源")
+        SectionHeader(stringResource(R.string.section_source))
         OutlinedPanel {
             Text(
                 text = record.sourceLabel(),
@@ -307,22 +315,28 @@ private fun DomainResult(record: DomainRecord) {
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = if (record.source == RecordSource.RDAP) {
-                    "来自 IANA RDAP 服务表指向的注册局，以及注册商自己的 RDAP。隐私政策要求隐藏的字段不会出现。"
+                    stringResource(R.string.source_rdap)
                 } else {
-                    "这个后缀没有 RDAP，结果来自 IANA 公布的 WHOIS 服务器。不同注册局的文本格式不一样，原始记录里保留了全文。"
+                    stringResource(R.string.source_whois)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { copyPlainText(context, record.summary(), "已复制摘要") }) {
+                TextButton(onClick = {
+                    copyPlainText(
+                        context,
+                        context.domainSummary(record),
+                        context.getString(R.string.copied_summary)
+                    )
+                }) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("复制摘要")
+                    Text(stringResource(R.string.copy_summary))
                 }
                 TextButton(onClick = { showRaw = true }) {
-                    Text("原始记录")
+                    Text(stringResource(R.string.raw_record))
                 }
             }
         }
@@ -330,7 +344,7 @@ private fun DomainResult(record: DomainRecord) {
     if (showRaw) {
         AlertDialog(
             onDismissRequest = { showRaw = false },
-            title = { Text("原始记录") },
+            title = { Text(stringResource(R.string.raw_record)) },
             text = {
                 SelectionContainer {
                     Box(
@@ -347,12 +361,14 @@ private fun DomainResult(record: DomainRecord) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { copyPlainText(context, record.raw, "已复制原始记录") }) {
-                    Text("复制")
+                TextButton(onClick = {
+                    copyPlainText(context, record.raw, context.getString(R.string.copied_raw))
+                }) {
+                    Text(stringResource(R.string.action_copy))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRaw = false }) { Text("关闭") }
+                TextButton(onClick = { showRaw = false }) { Text(stringResource(R.string.action_close)) }
             }
         )
     }
@@ -400,7 +416,7 @@ private fun StatusRow(record: DomainRecord) {
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
-                    text = status.label,
+                    text = LocalContext.current.statusText(status),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -438,20 +454,21 @@ private fun DetailLine(
 
 @Composable
 private fun ContactBlock(contact: ContactInfo) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            text = contact.roleLabel,
+            text = context.roleText(contact.role),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = contact.summary(),
+            text = context.contactSummary(contact),
             style = MaterialTheme.typography.bodyMedium
         )
         if (contact.redacted && contact.visible) {
             Text(
-                text = "其余字段已按隐私政策隐藏",
+                text = stringResource(R.string.contact_redacted_rest),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -31,8 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.BuildConfig
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.AppInfo
 
 private enum class SettingsPage {
@@ -97,8 +99,11 @@ private fun SettingsMainPage(
     onOpenAgreement: () -> Unit
 ) {
     var confirmDisableClipboardClear by remember { mutableStateOf(false) }
+    val appName = stringResource(R.string.app_name)
+    val clipboardWipeOn = stringResource(R.string.clipboard_wipe_on)
+    val clipboardWipeOff = stringResource(R.string.clipboard_wipe_off)
     ToolBoxScaffold(
-        title = "设置",
+        title = stringResource(R.string.settings_title),
         subtitle = "v${BuildConfig.VERSION_NAME}",
         onBack = onBack
     ) { padding ->
@@ -109,36 +114,36 @@ private fun SettingsMainPage(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { SectionHeader("外观") }
+            item { SectionHeader(stringResource(R.string.section_appearance)) }
 
             item {
                 SettingsGroup {
                     SettingsRow(
-                        title = "终端配色",
-                        subtitle = "背景与选中高亮，带实时预览",
+                        title = stringResource(R.string.settings_colors_title),
+                        subtitle = stringResource(R.string.settings_colors_sub),
                         icon = Icons.Default.Palette,
                         onClick = onOpenAppearance
                     )
                     GroupDivider()
                     SettingsRow(
-                        title = "使用协议与隐私",
-                        subtitle = "完整条款、隐私说明与开源免费声明",
+                        title = stringResource(R.string.settings_terms_title),
+                        subtitle = stringResource(R.string.settings_terms_sub),
                         icon = Icons.Default.Description,
                         onClick = onOpenAgreement
                     )
                 }
             }
 
-            item { SectionHeader("安全") }
+            item { SectionHeader(stringResource(R.string.section_security_settings)) }
 
             item {
                 SettingsGroup {
                     SettingsRow(
-                        title = "私钥登录后清空剪贴板",
+                        title = stringResource(R.string.clipboard_wipe_title),
                         subtitle = if (clearClipboardAfterKeyLogin) {
-                            "登录成功后把剪贴板写成空数据"
+                            clipboardWipeOn
                         } else {
-                            "已关闭。剪贴板中的私钥可能泄露"
+                            clipboardWipeOff
                         },
                         icon = Icons.Default.Key,
                         tint = if (clearClipboardAfterKeyLogin) {
@@ -173,21 +178,25 @@ private fun SettingsMainPage(
                 item {
                     InfoBanner(
                         icon = Icons.Default.Warning,
-                        title = "剪贴板泄露风险",
-                        text = "私钥登录成功后不再清空剪贴板。复制过的私钥会留在剪贴板里，其他应用可以读取。",
+                        title = stringResource(R.string.clipboard_risk_title),
+                        text = stringResource(R.string.clipboard_risk_text),
                         container = MaterialTheme.colorScheme.errorContainer,
                         content = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
             }
 
-            item { SectionHeader("关于") }
+            item { SectionHeader(stringResource(R.string.section_about)) }
 
             item {
                 SettingsGroup {
                     SettingsRow(
-                        title = "关于本项目",
-                        subtitle = "版本 ${BuildConfig.VERSION_NAME} · ${AppInfo.LICENSE_NAME}",
+                        title = stringResource(R.string.about_project),
+                        subtitle = stringResource(
+                            R.string.settings_version_sub,
+                            BuildConfig.VERSION_NAME,
+                            AppInfo.LICENSE_NAME
+                        ),
                         icon = Icons.Default.Info,
                         onClick = onOpenAbout,
                         tint = MaterialTheme.colorScheme.secondary
@@ -198,8 +207,8 @@ private fun SettingsMainPage(
             item {
                 InfoBanner(
                     icon = Icons.Default.VerifiedUser,
-                    title = "开源免费，遇到收费请退款并举报",
-                    text = "唯一官方来源：${AppInfo.REPO_LABEL}。作者没有收费版本，也不会索要任何费用。",
+                    title = stringResource(R.string.settings_paid_title),
+                    text = stringResource(R.string.settings_paid_text, AppInfo.REPO_LABEL),
                     container = MaterialTheme.colorScheme.errorContainer,
                     content = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -207,7 +216,13 @@ private fun SettingsMainPage(
 
             item {
                 Text(
-                    text = "${AppInfo.NAME} v${BuildConfig.VERSION_NAME} · ${AppInfo.LICENSE_NAME} · © 2026 ${AppInfo.AUTHOR}",
+                    text = stringResource(
+                        R.string.version_line,
+                        appName,
+                        BuildConfig.VERSION_NAME,
+                        AppInfo.LICENSE_NAME,
+                        AppInfo.AUTHOR
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier
@@ -221,9 +236,9 @@ private fun SettingsMainPage(
     if (confirmDisableClipboardClear) {
         AlertDialog(
             onDismissRequest = { confirmDisableClipboardClear = false },
-            title = { Text("关闭后私钥可能泄露") },
+            title = { Text(stringResource(R.string.clipboard_dialog_title)) },
             text = {
-                Text("关闭后，使用私钥登录成功时不会再把剪贴板写成空数据。复制过的私钥会留在剪贴板里，其他应用可以读取。")
+                Text(stringResource(R.string.clipboard_dialog_text))
             },
             confirmButton = {
                 TextButton(
@@ -232,12 +247,12 @@ private fun SettingsMainPage(
                         onClearClipboardAfterKeyLogin(false)
                     }
                 ) {
-                    Text("仍然关闭")
+                    Text(stringResource(R.string.still_turn_off))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDisableClipboardClear = false }) {
-                    Text("保持开启")
+                    Text(stringResource(R.string.keep_on))
                 }
             }
         )

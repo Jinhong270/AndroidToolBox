@@ -26,8 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.ssh.TerminalEmulator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -216,7 +218,7 @@ internal fun TerminalViewport(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "回到底部",
+                        contentDescription = stringResource(R.string.cd_scroll_bottom),
                         tint = accent,
                         modifier = Modifier.padding(10.dp)
                     )

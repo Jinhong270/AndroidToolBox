@@ -1,5 +1,7 @@
 package com.jh270.toolbox.ssh
 
+import android.content.Context
+import com.jh270.toolbox.R
 import com.jh270.toolbox.sshnet.ExecChannel
 import com.jh270.toolbox.sshnet.ShellChannel
 import com.jh270.toolbox.sshnet.SftpChannel
@@ -43,7 +45,13 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-class SshRepository {
+private class NotConnected(message: String) : IllegalStateException(message)
+
+class SshRepository(private val context: Context) {
+    private fun text(id: Int, vararg args: Any): String = context.getString(id, *args)
+
+    private fun notConnected(): Nothing = throw NotConnected(text(R.string.err_not_connected))
+
     private var session: SshSession? = null
     private var sftpChannel: SftpChannel? = null
 
@@ -80,7 +88,7 @@ class SshRepository {
 
     suspend fun reconnect(): Result<String> = withContext(Dispatchers.IO) {
         gate.withLock {
-            val config = lastConfig ?: return@withLock Result.failure(IllegalStateException("没有可恢复的连接"))
+            val config = lastConfig ?: return@withLock Result.failure(IllegalStateException(text(R.string.err_no_session)))
             connectLocked(config, recovering = true)
         }
     }
@@ -118,14 +126,7 @@ class SshRepository {
                 null
             }
             if (privateKey != null) {
-                try {
-                    SshPrivateKeys.load(privateKey, config.passphrase.ifBlank { null })
-                } catch (e: IllegalArgumentException) {
-                    val message = e.message.orEmpty()
-                    if (message.contains("encrypted")) throw IllegalArgumentException("私钥已加密：请填写私钥密码")
-                    if (message.contains("passphrase")) throw IllegalArgumentException("私钥密码错误，无法解密私钥")
-                    throw e
-                }
+                SshPrivateKeys.load(privateKey, config.passphrase.ifBlank { null })
             }
 
             val newSession = SshSession()
@@ -213,6 +214,7 @@ class SshRepository {
     }
 
     private fun isTransportFailure(error: Throwable): Boolean {
+        if (generateSequence(error) { it.cause }.any { it is NotConnected }) return true
         val text = generateSequence(error) { it.cause }
             .joinToString(" ") { "${it.javaClass.name} ${it.message}" }
             .lowercase()
@@ -234,7 +236,7 @@ class SshRepository {
             "software caused connection abort",
             "connection timed out",
             "sockettimeoutexception",
-            "未连接至 ssh"
+            "not connected to the ssh server"
         )
         return markers.any { text.contains(it) }
     }
@@ -267,7 +269,7 @@ class SshRepository {
     @Suppress("BlockingMethodInNonBlockingContext")
     suspend fun startShellSession(cols: Int, rows: Int, onOutput: (String) -> Unit, onExit: () -> Unit): Result<Unit> = remoteCall {
         runCatching {
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val sess = session ?: notConnected()
             val token = ++shellSessionToken
             closeShellSessionInternal()
             shellClosingLocally = false
@@ -369,7 +371,7 @@ class SshRepository {
 
     suspend fun listFiles(path: String): Result<List<RemoteFile>> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val targetPath = RemotePath.normalize(if (path.isBlank()) "/" else path)
 
             @Suppress("UNCHECKED_CAST")
@@ -435,7 +437,7 @@ class SshRepository {
 
     suspend fun createFolder(parentPath: String, folderName: String): Result<Unit> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val newFolderPath = RemotePath.join(parentPath, folderName)
             channel.mkdir(newFolderPath)
         }
@@ -443,7 +445,7 @@ class SshRepository {
 
     suspend fun createFile(parentPath: String, fileName: String): Result<Unit> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val newFilePath = RemotePath.join(parentPath, fileName)
             val inputStream = ByteArrayInputStream(ByteArray(0))
             channel.put(inputStream, newFilePath, SftpChannel.OVERWRITE)
@@ -452,7 +454,7 @@ class SshRepository {
 
     suspend fun previewFile(file: RemoteFile, maxBytes: Int = 5242880): Result<FilePreview> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
 
             if (file.isDirectory) {
                 return@runCatching FilePreview(
@@ -462,7 +464,7 @@ class SshRepository {
                     permissions = file.permissions,
                     modifiedTime = file.modifiedTime,
                     fileType = FileType.DIRECTORY,
-                    errorMessage = "文件夹无法作为文件预览"
+                    errorMessage = text(R.string.err_folder_preview)
                 )
             }
 
@@ -515,7 +517,7 @@ class SshRepository {
 
     suspend fun listArchiveEntries(file: RemoteFile): Result<List<ArchiveEntryItem>> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val lowerName = file.name.lowercase()
             when {
                 lowerName.endsWith(".zip") -> readZipEntries(channel, file.path)
@@ -527,7 +529,7 @@ class SshRepository {
 
     suspend fun previewArchiveEntry(archiveFile: RemoteFile, entryPath: String): Result<FilePreview> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val lowerName = archiveFile.name.lowercase()
             val outputStream = ByteArrayOutputStream()
 
@@ -553,7 +555,7 @@ class SshRepository {
                 zipIn.close()
                 inputStream.close()
 
-                if (!found) throw IllegalStateException("压缩包中未找到文件: $entryPath")
+                if (!found) throw IllegalStateException(text(R.string.err_archive_missing, entryPath))
             } else if (lowerName.endsWith(".7z")) {
                 outputStream.write(readSevenZEntryContent(channel, archiveFile.path, entryPath))
             } else {
@@ -561,7 +563,7 @@ class SshRepository {
                     if (remotePlatform == RemotePlatform.WINDOWS) {
                         throw IllegalStateException("use local tar")
                     }
-                    val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                    val sess = session ?: notConnected()
                     val cmd = tarReadCommand(archiveFile, entryPath)
                     val execChan = sess.openChannel("exec") as ExecChannel
                     execChan.setCommand(cmd)
@@ -603,7 +605,7 @@ class SshRepository {
 
     suspend fun saveFileContent(path: String, content: String, charsetName: String = "UTF-8"): Result<Unit> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val bytes = encodeEditableText(content, charsetName)
             val inputStream = ByteArrayInputStream(bytes)
             channel.put(inputStream, path, SftpChannel.OVERWRITE)
@@ -612,7 +614,7 @@ class SshRepository {
 
     suspend fun deleteFileOrFolder(file: RemoteFile): Result<Unit> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             if (file.isDirectory) {
                 deleteRecursive(channel, file.path)
             } else {
@@ -640,7 +642,7 @@ class SshRepository {
 
     suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val newPath = RemotePath.join(RemotePath.parent(file.path), newName)
             channel.rename(file.path, newPath)
         }
@@ -648,7 +650,7 @@ class SshRepository {
 
     suspend fun calculateChecksums(file: RemoteFile): Result<ChecksumResult> = remoteCall {
         runCatching {
-            val channel = sftpChannel ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val channel = sftpChannel ?: notConnected()
             val md5Digest = MessageDigest.getInstance("MD5")
             val sha256Digest = MessageDigest.getInstance("SHA-256")
 
@@ -993,7 +995,7 @@ class SshRepository {
                     entry = sevenZ.nextEntry
                 }
             }
-            throw IllegalStateException("压缩包中未找到文件: $entryPath")
+            throw IllegalStateException(text(R.string.err_archive_missing, entryPath))
         } finally {
             tempFile.delete()
         }
@@ -1005,8 +1007,8 @@ class SshRepository {
             return when (format) {
                 "tar.gz" -> ps("tar -czf ${psQuote("$winDir\\$fileName.tar.gz")} -C ${psQuote(winDir)} ${psQuote(fileName)}")
                 "tar" -> ps("tar -cf ${psQuote("$winDir\\$fileName.tar")} -C ${psQuote(winDir)} ${psQuote(fileName)}")
-                "zip" -> throw IllegalArgumentException("压缩 zip 在 Windows 上使用本地打包")
-                else -> throw IllegalArgumentException("不支持的压缩格式: $format")
+                "zip" -> throw IllegalArgumentException(text(R.string.err_zip_windows))
+                else -> throw IllegalArgumentException(text(R.string.err_compress_format, format))
             }
         }
 
@@ -1016,7 +1018,7 @@ class SshRepository {
             "zip" -> "cd $escapedDir && zip -r ${shellQuote("$fileName.zip")} $escapedFile"
             "tar.gz" -> "cd $escapedDir && tar -czf ${shellQuote("$fileName.tar.gz")} $escapedFile"
             "tar" -> "cd $escapedDir && tar -cf ${shellQuote("$fileName.tar")} $escapedFile"
-            else -> throw IllegalArgumentException("不支持的压缩格式: $format")
+            else -> throw IllegalArgumentException(text(R.string.err_compress_format, format))
         }
     }
 
@@ -1028,7 +1030,7 @@ class SshRepository {
             return when {
                 lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") -> ps("tar -xzf $archive -C $folder")
                 lowerName.endsWith(".tar") -> ps("tar -xf $archive -C $folder")
-                else -> throw IllegalArgumentException("该格式在 Windows 上改为本地解压")
+                else -> throw IllegalArgumentException(text(R.string.err_windows_extract))
             }
         }
 
@@ -1041,7 +1043,7 @@ class SshRepository {
             lowerName.endsWith(".gz") -> "cd $escapedDir && gunzip -k $escapedFile"
             lowerName.endsWith(".rar") -> "cd $escapedDir && unrar x -o+ $escapedFile"
             lowerName.endsWith(".7z") -> "cd $escapedDir && 7z x -y $escapedFile"
-            else -> throw IllegalArgumentException("不支持的解压格式: $fileName")
+            else -> throw IllegalArgumentException(text(R.string.err_extract_format, fileName))
         }
     }
 
@@ -1085,7 +1087,7 @@ class SshRepository {
             compressZipSFTPFallback(channel, file, parentDir)
         } else {
             val cmd = buildCompressCommand(parentDir, fileName, format)
-            val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+            val sess = session ?: notConnected()
             try {
                 executeSshCommand(sess, cmd)
             } catch (e: CancellationException) {
@@ -1131,7 +1133,7 @@ class SshRepository {
     }
 
     private fun openExtraSftp(): SftpChannel {
-        val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+        val sess = session ?: notConnected()
         if (!sess.isConnected) throw IllegalStateException("session is down")
         val channel = sess.openChannel("sftp") as SftpChannel
         channel.connect(20000)
@@ -1206,7 +1208,7 @@ class SshRepository {
             lowerName.endsWith(".7z") -> decompressSevenZLocal(channel, file, parentDir)
             lowerName.endsWith(".gz") && !lowerName.endsWith(".tar.gz") -> decompressGzipLocal(channel, file, parentDir)
             else -> {
-                val sess = session ?: throw IllegalStateException("未连接至 SSH 服务器")
+                val sess = session ?: notConnected()
                 try {
                     executeSshCommand(sess, buildDecompressCommand(parentDir, fileName, lowerName))
                 } catch (e: CancellationException) {
@@ -1218,7 +1220,7 @@ class SshRepository {
                         lowerName.endsWith(".tar") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar.gz") -> {
                             decompressTarLocal(channel, file, parentDir)
                         }
-                        lowerName.endsWith(".rar") -> throw IllegalArgumentException("主机上没有可用的 unrar，无法解压 rar")
+                        lowerName.endsWith(".rar") -> throw IllegalArgumentException(text(R.string.err_no_unrar))
                         else -> throw e
                     }
                 }
@@ -1294,7 +1296,7 @@ class SshRepository {
                     entry = tar.nextEntry()
                 }
             }
-            throw IllegalStateException("压缩包中未找到文件: $entryPath")
+            throw IllegalStateException(text(R.string.err_archive_missing, entryPath))
         } finally {
             tempFile.delete()
         }
@@ -1579,30 +1581,27 @@ class SshRepository {
         val fullText = "$msg $causeMsg ${e.javaClass.name}".lowercase()
 
         return when {
-            fullText.contains("私钥密码错误") || fullText.contains("私钥已加密") || fullText.contains("无法解密") -> msg
+            fullText.contains("passphrase") -> text(R.string.err_key_passphrase)
+            fullText.contains("encrypted") -> text(R.string.err_key_encrypted)
             fullText.contains("invalid privatekey") || fullText.contains("illegal key") || fullText.contains("failed to load key") || fullText.contains("not a valid") || fullText.contains("keyinvalid") -> {
-                "私钥解析失败：请检查私钥格式（支持 OpenSSH / PEM / PPK），并确保复制完整"
+                text(R.string.err_key_parse)
             }
             fullText.contains("no route to host") || fullText.contains("noroute") || fullText.contains("unknownhost") || fullText.contains("name or service not known") || fullText.contains("no address associated") -> {
-                "地址错误：无法找到目标主机，请检查 IP 地址或域名"
+                text(R.string.err_host)
             }
             fullText.contains("timeout") || fullText.contains("timed out") || fullText.contains("sockettimeoutexception") -> {
-                "连接超时：服务器未响应，请检查防火墙或网络状态"
+                text(R.string.err_timeout)
             }
             fullText.contains("auth fail") || fullText.contains("authentication failed") || fullText.contains("userauth") -> {
-                "身份认证失败：用户名、密码或 SSH 私钥/密码错误"
+                text(R.string.err_auth)
             }
             fullText.contains("connection refused") || fullText.contains("connectexception") -> {
-                "连接被拒绝：请检查端口号是否正确，以及服务器 SSH 服务（sshd）是否开启"
+                text(R.string.err_refused)
             }
-            fullText.contains("algorithm negotiation fail") -> {
-                "加密算法协商失败：服务器禁用了兼容算法，请检查 SSH 服务配置"
-            }
-            fullText.contains("network is unreachable") -> {
-                "网络不可达：请检查手机网络连接或局域网设置"
-            }
-            msg.isNotBlank() -> "连接失败: $msg"
-            else -> "连接失败: Unknown error"
+            fullText.contains("algorithm negotiation fail") -> text(R.string.err_kex)
+            fullText.contains("network is unreachable") -> text(R.string.err_network)
+            msg.isNotBlank() -> text(R.string.err_connect_detail, msg)
+            else -> text(R.string.err_connect_unknown)
         }
     }
 

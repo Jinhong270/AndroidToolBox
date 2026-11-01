@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.ssh.TerminalEmulator
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -159,8 +161,8 @@ internal fun SelectionOverlay(
                 .background(Color(0xFF111827), RoundedCornerShape(10.dp))
                 .padding(horizontal = 4.dp, vertical = 4.dp)
         ) {
-            PopupAction("复制", onCopy)
-            PopupAction("粘贴", onPaste)
+            PopupAction(stringResource(R.string.copy_action), onCopy)
+            PopupAction(stringResource(R.string.paste_action), onPaste)
         }
     }
     if (end != null) {

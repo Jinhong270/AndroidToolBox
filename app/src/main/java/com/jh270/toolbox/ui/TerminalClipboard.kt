@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.ui.platform.ClipEntry
+import com.jh270.toolbox.R
 import androidx.compose.ui.platform.Clipboard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -17,7 +18,7 @@ internal fun copyTerminalText(
     if (text.isEmpty()) return
     scope.launch {
         clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("terminal", text)))
-        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.msg_copied), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -35,7 +36,7 @@ internal fun pasteTerminalClipboard(
             null
         }
         if (text.isNullOrEmpty()) {
-            Toast.makeText(context, "剪贴板是空的", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.clipboard_empty), Toast.LENGTH_SHORT).show()
         } else {
             onText(text)
         }

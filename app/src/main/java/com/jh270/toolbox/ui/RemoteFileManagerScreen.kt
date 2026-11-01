@@ -61,11 +61,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
@@ -92,23 +94,23 @@ fun RemoteFileManagerScreen(
     }
 
     ToolBoxScaffold(
-        title = "文件管理器",
+        title = stringResource(R.string.files_title),
         subtitle = when (uiState.remotePlatform) {
-            RemotePlatform.WINDOWS -> "Windows 主机"
-            RemotePlatform.UNIX -> "Linux 主机"
-            RemotePlatform.UNKNOWN -> "SSH 主机"
+            RemotePlatform.WINDOWS -> stringResource(R.string.platform_windows)
+            RemotePlatform.UNIX -> stringResource(R.string.platform_unix)
+            RemotePlatform.UNKNOWN -> stringResource(R.string.platform_unknown)
         },
         actions = {
             IconButton(onClick = { viewModel.openTerminal() }) {
                 Icon(
                     imageVector = Icons.Default.Terminal,
-                    contentDescription = "终端"
+                    contentDescription = stringResource(R.string.cd_terminal)
                 )
             }
             IconButton(onClick = { viewModel.disconnect() }) {
                 Icon(
                     imageVector = Icons.Default.PowerOff,
-                    contentDescription = "断开",
+                    contentDescription = stringResource(R.string.cd_disconnect),
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -144,7 +146,7 @@ fun RemoteFileManagerScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         TextButton(onClick = { viewModel.cancelBackgroundTask() }) {
-                            Text("取消")
+                            Text(stringResource(R.string.action_cancel))
                         }
                     }
                 }
@@ -169,7 +171,7 @@ fun RemoteFileManagerScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "上级"
+                                contentDescription = stringResource(R.string.cd_parent)
                             )
                         }
 
@@ -178,7 +180,7 @@ fun RemoteFileManagerScreen(
                             onValueChange = { editingPath = it },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("路径") },
+                            label = { Text(stringResource(R.string.path_label)) },
                             shape = MaterialTheme.shapes.small,
                             textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -197,7 +199,7 @@ fun RemoteFileManagerScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "刷新"
+                                contentDescription = stringResource(R.string.cd_refresh)
                             )
                         }
                     }
@@ -212,7 +214,7 @@ fun RemoteFileManagerScreen(
                             onValueChange = { viewModel.updateSearchQuery(it) },
                             placeholder = {
                                 Text(
-                                    text = "搜索",
+                                    text = stringResource(R.string.search_label),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -224,7 +226,7 @@ fun RemoteFileManagerScreen(
                             trailingIcon = {
                                 if (uiState.searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "清除")
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = stringResource(R.string.cd_clear_search))
                                     }
                                 }
                             },
@@ -239,14 +241,14 @@ fun RemoteFileManagerScreen(
                                 onClick = { viewModel.openCreateFolderDialog() },
                                 modifier = Modifier.height(52.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = "新文件夹")
+                                Icon(imageVector = Icons.Default.CreateNewFolder, contentDescription = stringResource(R.string.cd_new_folder))
                             }
 
                             OutlinedButton(
                                 onClick = { viewModel.openCreateFileDialog() },
                                 modifier = Modifier.height(52.dp)
                             ) {
-                                Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "新文件")
+                                Icon(imageVector = Icons.AutoMirrored.Filled.NoteAdd, contentDescription = stringResource(R.string.cd_new_file))
                             }
                         }
                     }
@@ -263,7 +265,7 @@ fun RemoteFileManagerScreen(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "读取失败",
+                            text = stringResource(R.string.read_failed),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -275,7 +277,7 @@ fun RemoteFileManagerScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(onClick = { viewModel.refreshDirectory() }) {
-                            Text("重试")
+                            Text(stringResource(R.string.action_retry))
                         }
                     }
                 }
@@ -296,7 +298,7 @@ fun RemoteFileManagerScreen(
                         CircularProgressIndicator(strokeWidth = 3.dp)
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "正在读取远程目录...",
+                            text = stringResource(R.string.loading_directory),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -331,7 +333,7 @@ fun RemoteFileManagerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
-                                    text = if (uiState.searchQuery.isNotBlank()) "没有匹配的文件" else "这个目录是空的",
+                                    text = if (uiState.searchQuery.isNotBlank()) stringResource(R.string.no_match) else stringResource(R.string.directory_empty),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -363,8 +365,8 @@ fun RemoteFileManagerScreen(
 
     if (uiState.showCreateFolderDialog) {
         CreateFileDialog(
-            title = "新建文件夹",
-            label = "名称",
+            title = stringResource(R.string.new_folder_title),
+            label = stringResource(R.string.name_label),
             isOperating = uiState.isOperatingFile,
             errorMessage = uiState.actionErrorMessage,
             onConfirm = { name -> viewModel.executeCreateFolder(name) },
@@ -374,8 +376,8 @@ fun RemoteFileManagerScreen(
 
     if (uiState.showCreateFileDialog) {
         CreateFileDialog(
-            title = "新建文件",
-            label = "名称",
+            title = stringResource(R.string.new_file_title),
+            label = stringResource(R.string.name_label),
             isOperating = uiState.isOperatingFile,
             errorMessage = uiState.actionErrorMessage,
             onConfirm = { name -> viewModel.executeCreateFile(name) },
@@ -544,7 +546,7 @@ fun RemoteFileRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 if (file.name == "..") {
                     Text(
-                        text = "返回",
+                        text = stringResource(R.string.go_up),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -554,7 +556,7 @@ fun RemoteFileRow(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = if (file.isDirectory) "目录" else formatFileSize(file.size),
+                            text = if (file.isDirectory) stringResource(R.string.type_directory) else formatFileSize(file.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

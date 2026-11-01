@@ -35,26 +35,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.BuildConfig
+import com.jh270.toolbox.R
 import com.jh270.toolbox.data.AppInfo
-
-private val ThirdPartyComponents = listOf(
-    "JSch（BSD）— SSH / SFTP 协议实现",
-    "Bouncy Castle（MIT）与 EdDSA-Java（CC0）— 密钥与算法支持",
-    "Apache Commons Compress（Apache-2.0）与 XZ for Java（公有领域）— 压缩包处理",
-    "AndroidX、Jetpack Compose、Material Design（Apache-2.0）— 界面框架"
-)
 
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val copiedRepo = stringResource(R.string.copied_repo)
+    val appName = stringResource(R.string.app_name)
 
     ToolBoxScaffold(
-        title = "关于本项目",
-        subtitle = "${AppInfo.NAME} · 开源免费",
+        title = stringResource(R.string.about_title),
+        subtitle = stringResource(R.string.about_subtitle, appName),
         onBack = onBack
     ) { padding ->
         LazyColumn(
@@ -66,12 +63,12 @@ fun AboutScreen(onBack: () -> Unit) {
         ) {
             item { AboutHeader() }
 
-            item { SectionHeader("官方仓库") }
+            item { SectionHeader(stringResource(R.string.section_repo)) }
 
             item {
                 OutlinedPanel {
                     Text(
-                        text = "源码、问题反馈与版本更新都只在这个仓库发布。",
+                        text = stringResource(R.string.about_repo_text),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -94,7 +91,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
-                            onClick = { copyPlainText(context, AppInfo.REPO_URL, "已复制仓库地址") },
+                            onClick = { copyPlainText(context, AppInfo.REPO_URL, copiedRepo) },
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(
@@ -103,7 +100,7 @@ fun AboutScreen(onBack: () -> Unit) {
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("复制地址")
+                            Text(stringResource(R.string.copy_address))
                         }
                         Button(
                             onClick = { openExternalLink(context, AppInfo.REPO_URL) },
@@ -115,13 +112,13 @@ fun AboutScreen(onBack: () -> Unit) {
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("打开仓库")
+                            Text(stringResource(R.string.open_repo))
                         }
                     }
                 }
             }
 
-            item { SectionHeader("许可与费用") }
+            item { SectionHeader(stringResource(R.string.section_license)) }
 
             item {
                 OutlinedPanel {
@@ -140,7 +137,7 @@ fun AboutScreen(onBack: () -> Unit) {
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "可自由使用、修改与分发",
+                                text = stringResource(R.string.license_freedom),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -148,7 +145,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "本软件开源免费，没有付费版本、没有内购、没有会员。作者不会以任何名义向你收费，也不需要你提供任何支付信息。",
+                        text = stringResource(R.string.about_free_text),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -158,31 +155,31 @@ fun AboutScreen(onBack: () -> Unit) {
             item {
                 InfoBanner(
                     icon = Icons.Default.Gavel,
-                    title = "在别处付过钱？请退款并举报",
-                    text = "如果你在应用商店、网盘、群聊或任何渠道付费获得了本软件，请立即申请退款，并向该平台举报卖家：ToolBox 本身完全免费，收费渠道都是倒卖。",
+                    title = stringResource(R.string.about_refund_title),
+                    text = stringResource(R.string.about_refund_text),
                     container = MaterialTheme.colorScheme.errorContainer,
                     content = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
 
-            item { SectionHeader("隐私") }
+            item { SectionHeader(stringResource(R.string.section_privacy)) }
 
             item {
                 InfoBanner(
                     icon = Icons.Default.Lock,
-                    title = "连接不经过第三方",
-                    text = "主机配置与密码只保存在本机应用私有目录。域名查询直接发往 IANA 和对应注册局。应用不含统计、广告或崩溃上报 SDK，不会把主机信息、凭据、文件内容或查询记录发送给作者。",
+                    title = stringResource(R.string.privacy_title),
+                    text = stringResource(R.string.privacy_text),
                     container = MaterialTheme.colorScheme.tertiaryContainer,
                     content = MaterialTheme.colorScheme.onTertiaryContainer
                 )
             }
 
-            item { SectionHeader("相关链接") }
+            item { SectionHeader(stringResource(R.string.section_links)) }
 
             item {
                 SettingsGroup {
                     SettingsRow(
-                        title = "作者主页",
+                        title = stringResource(R.string.author_page),
                         subtitle = AppInfo.AUTHOR,
                         icon = Icons.Default.Person,
                         onClick = { openExternalLink(context, AppInfo.AUTHOR_URL) },
@@ -190,8 +187,8 @@ fun AboutScreen(onBack: () -> Unit) {
                     )
                     GroupDivider()
                     SettingsRow(
-                        title = "版本与发布",
-                        subtitle = "查看最新版本与更新日志",
+                        title = stringResource(R.string.releases_title),
+                        subtitle = stringResource(R.string.releases_sub),
                         icon = Icons.Default.SystemUpdate,
                         onClick = { openExternalLink(context, AppInfo.RELEASE_PAGE) },
                         tint = MaterialTheme.colorScheme.tertiary
@@ -199,12 +196,16 @@ fun AboutScreen(onBack: () -> Unit) {
                 }
             }
 
-            item { SectionHeader("第三方开源组件") }
+            item { SectionHeader(stringResource(R.string.section_oss)) }
 
             item {
+                val thirdParty = listOf(
+                    stringResource(R.string.oss_7z),
+                    stringResource(R.string.oss_androidx)
+                )
                 OutlinedPanel {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ThirdPartyComponents.forEach { component ->
+                        thirdParty.forEach { component ->
                             Row(verticalAlignment = Alignment.Top) {
                                 Icon(
                                     imageVector = Icons.Default.Storage,
@@ -228,7 +229,12 @@ fun AboutScreen(onBack: () -> Unit) {
 
             item {
                 Text(
-                    text = "© 2026 ${AppInfo.AUTHOR} · ${AppInfo.LICENSE_NAME} · 版本 ${BuildConfig.VERSION_NAME}",
+                    text = stringResource(
+                        R.string.about_footer,
+                        AppInfo.AUTHOR,
+                        AppInfo.LICENSE_NAME,
+                        BuildConfig.VERSION_NAME
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.fillMaxWidth()
@@ -263,19 +269,19 @@ private fun AboutHeader() {
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = AppInfo.NAME,
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
                     color = heroContent
                 )
                 Text(
-                    text = AppInfo.TAGLINE,
+                    text = stringResource(R.string.tagline),
                     style = MaterialTheme.typography.labelMedium,
                     color = heroContent.copy(alpha = 0.85f)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "版本 ${BuildConfig.VERSION_NAME} · 开源免费",
+                    text = stringResource(R.string.about_version_free, BuildConfig.VERSION_NAME),
                     style = MaterialTheme.typography.labelSmall,
                     color = heroContent.copy(alpha = 0.95f)
                 )

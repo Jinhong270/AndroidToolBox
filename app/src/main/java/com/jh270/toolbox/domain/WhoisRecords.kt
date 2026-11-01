@@ -20,10 +20,10 @@ object WhoisRecords {
     )
     private val statusKeys = listOf("domain status", "status", "state")
     private val roles = listOf(
-        RoleSpec("registrant", "注册人", listOf("registrant")),
-        RoleSpec("administrative", "管理联系人", listOf("admin", "administrative", "admin contact", "administrative contact")),
-        RoleSpec("technical", "技术联系人", listOf("tech", "technical", "tech contact", "technical contact")),
-        RoleSpec("billing", "账单联系人", listOf("billing", "billing contact"))
+        RoleSpec("registrant", listOf("registrant")),
+        RoleSpec("administrative", listOf("admin", "administrative", "admin contact", "administrative contact")),
+        RoleSpec("technical", listOf("tech", "technical", "tech contact", "technical contact")),
+        RoleSpec("billing", listOf("billing", "billing contact"))
     )
 
     fun queryFor(host: String, asciiDomain: String): String {
@@ -138,7 +138,6 @@ object WhoisRecords {
         val redacted = rawValues.any { looksRedacted(it) }
         return ContactInfo(
             role = spec.role,
-            roleLabel = spec.label,
             name = publishedText(name),
             organization = publishedText(organization),
             email = publishedText(email),
@@ -161,8 +160,8 @@ object WhoisRecords {
         val text = publishedText(value) ?: return null
         val normalized = text.lowercase(Locale.ROOT)
         return when {
-            normalized.contains("unsigned") || normalized == "no" || normalized == "false" -> "未签名"
-            normalized.contains("signed") || normalized == "yes" || normalized == "true" -> "已签名"
+            normalized.contains("unsigned") || normalized == "no" || normalized == "false" -> "unsigned"
+            normalized.contains("signed") || normalized == "yes" || normalized == "true" -> "signed"
             else -> text
         }
     }
@@ -224,5 +223,5 @@ object WhoisRecords {
         return fields.filter { it.first in keys && it.second.isNotBlank() }.map { it.second.trim() }
     }
 
-    private data class RoleSpec(val role: String, val label: String, val prefixes: List<String>)
+    private data class RoleSpec(val role: String, val prefixes: List<String>)
 }

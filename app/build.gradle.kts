@@ -33,6 +33,9 @@ android {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        generateLocaleConfig = true
+    }
 }
 
 dependencies {
@@ -47,10 +50,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.jsch)
-    implementation(libs.eddsa)
-    implementation(libs.bcprov)
-    implementation(libs.bcpkix)
     implementation(libs.commons.compress)
     implementation(libs.xz)
     debugImplementation(libs.androidx.compose.ui.tooling)
