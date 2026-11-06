@@ -1,7 +1,9 @@
 package com.jh270.toolbox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -49,6 +51,8 @@ fun SshTerminalScreen(
     val keyFg = readableForeground(keyBg)
     val accent = if (luminance(termBg) > 0.5f) Color(0xFF0369A1) else Color(0xFF38BDF8)
     val lines = uiState.terminalLines
+
+    BackHandler { viewModel.hideTerminal() }
 
     fun clearSelection() {
         anchor = null
@@ -104,6 +108,7 @@ fun SshTerminalScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .background(termBg)
                 .imePadding()
         ) {

@@ -24,6 +24,8 @@ object RegistryHosts {
         if (normalized.contains("..") || normalized.startsWith('.')) return false
         val labels = normalized.split('.')
         if (labels.size < 2) return false
+        val tld = labels.last()
+        if (!tld.startsWith("xn--") && !tld.all { it in 'a'..'z' }) return false
         return labels.all { label ->
             label.isNotEmpty() && label.length <= 63 && !label.startsWith('-') && !label.endsWith('-')
         }

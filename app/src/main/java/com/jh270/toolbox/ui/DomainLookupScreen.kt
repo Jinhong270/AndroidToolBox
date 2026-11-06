@@ -1,5 +1,6 @@
 package com.jh270.toolbox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ fun DomainLookupScreen(
     viewModel: DomainLookupViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    BackHandler(onBack = onBack)
     ToolBoxScaffold(
         title = stringResource(R.string.domain_title),
         subtitle = stringResource(R.string.domain_subtitle),
@@ -75,7 +77,7 @@ fun DomainLookupScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .screenPadding(padding),
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -126,6 +128,11 @@ private fun SearchPanel(
     onInput: (String) -> Unit,
     onLookup: (String) -> Unit
 ) {
+    val dismissKeyboard = rememberKeyboardDismisser()
+    val submit: (String) -> Unit = { value ->
+        dismissKeyboard()
+        if (!loading) onLookup(value)
+    }
     OutlinedPanel {
         OutlinedTextField(
             value = input,
@@ -140,11 +147,11 @@ private fun SearchPanel(
                 imeAction = ImeAction.Search,
                 autoCorrectEnabled = false
             ),
-            keyboardActions = KeyboardActions(onSearch = { if (!loading) onLookup(input) })
+            keyboardActions = KeyboardActions(onSearch = { submit(input) })
         )
         Spacer(modifier = Modifier.height(12.dp))
         Button(
-            onClick = { onLookup(input) },
+            onClick = { submit(input) },
             enabled = !loading && input.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -168,7 +175,7 @@ private fun SearchPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
-            RecentRow(recent = recent, onPick = onLookup)
+            RecentRow(recent = recent, onPick = submit)
         }
     }
 }

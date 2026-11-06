@@ -10,6 +10,7 @@ import com.jh270.toolbox.domain.DomainRecord
 import com.jh270.toolbox.domain.LookupOutcome
 import com.jh270.toolbox.domain.LookupProblem
 import com.jh270.toolbox.domain.PlatformLookupTransport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,8 +65,8 @@ class DomainLookupViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun lookup(raw: String = _uiState.value.input) {
-        val text = raw.trim()
-        if (text.isEmpty()) {
+        val query = raw.trim()
+        if (query.isEmpty()) {
             _uiState.update {
                 it.copy(input = "", loading = false, record = null, message = text(R.string.err_domain_empty), error = true)
             }
@@ -74,12 +75,24 @@ class DomainLookupViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         job = viewModelScope.launch {
             _uiState.update {
-                it.copy(input = text, loading = true, record = null, message = null, error = false)
+                it.copy(input = query, loading = true, record = null, message = null, error = false)
             }
-            val outcome = withContext(Dispatchers.IO) { client.lookup(text) }
+            val outcome: LookupOutcome? = try {
+                withContext(Dispatchers.IO) { client.lookup(query) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
             if (!isActive) return@launch
             _uiState.update { state ->
                 when (outcome) {
+                    null -> state.copy(
+                        loading = false,
+                        record = null,
+                        message = text(R.string.err_connect_unknown),
+                        error = true
+                    )
                     is LookupOutcome.Success -> state.copy(
                         loading = false,
                         record = outcome.record,

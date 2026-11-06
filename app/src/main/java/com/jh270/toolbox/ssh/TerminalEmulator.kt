@@ -71,59 +71,75 @@ class TerminalEmulator(
     private var savedCursorRow = 0
     private var savedCursorCol = 0
     private val savedStyle = Style()
+    private var mainCursorRow = 0
+    private var mainCursorCol = 0
+    private var carry = ""
+
+    @Volatile
     private var bracketedPaste = false
 
     val isBracketedPaste: Boolean
         get() = bracketedPaste
 
+    @Synchronized
     fun plainText(): String {
         return getLines().joinToString("\n") { line ->
             line.runs.joinToString("") { it.text }.trimEnd()
         }.trimEnd()
     }
 
-    fun feed(data: String) {
+    @Synchronized
+    fun feed(incoming: String) {
+        val data = if (carry.isEmpty()) incoming else carry + incoming
+        carry = ""
         var i = 0
         val n = data.length
         while (i < n) {
             val c = data[i]
             when {
                 c == ESC -> {
+                    val start = i
                     i++
-                    if (i >= n) return
-                    when (val c1 = data[i]) {
-                        '[' -> i = parseCsi(data, i + 1)
-                        ']' -> i = parseOsc(data, i + 1)
-                        '(', ')', '*', '+' -> i = if (i + 1 < n) i + 2 else n
+                    if (i >= n) {
+                        carry = data.substring(start)
+                        return
+                    }
+                    val next = when (data[i]) {
+                        '[' -> parseCsi(data, i + 1)
+                        ']' -> parseOsc(data, i + 1)
+                        '(', ')', '*', '+', '#' -> if (i + 1 < n) i + 2 else -1
                         '7' -> {
                             saveCursor()
-                            i++
+                            i + 1
                         }
                         '8' -> {
                             restoreCursor()
-                            i++
+                            i + 1
                         }
                         'M' -> {
                             reverseIndex()
-                            i++
+                            i + 1
                         }
                         'D' -> {
                             lineFeed()
-                            i++
+                            i + 1
                         }
                         'E' -> {
                             lineFeed()
                             cursorCol = 0
-                            i++
+                            i + 1
                         }
                         'c' -> {
                             reset()
-                            i++
+                            i + 1
                         }
-                        '=' , '>' -> i++
-                        '#' -> i = if (i + 1 < n) i + 2 else n
-                        else -> i++
+                        else -> i + 1
                     }
+                    if (next < 0) {
+                        carry = if (n - start <= MAX_CARRY) data.substring(start) else ""
+                        return
+                    }
+                    i = next
                 }
                 c == '\r' -> {
                     cursorCol = 0
@@ -155,6 +171,7 @@ class TerminalEmulator(
         }
     }
 
+    @Synchronized
     fun getLines(): List<TerminalLine> {
         val result = ArrayList<TerminalLine>(scrollback.size + rows)
         for (row in scrollback) {
@@ -171,6 +188,7 @@ class TerminalEmulator(
         return result
     }
 
+    @Synchronized
     fun clearScreen() {
         scrollback.clear()
         val g = activeGrid()
@@ -180,6 +198,7 @@ class TerminalEmulator(
         wrapPending = false
     }
 
+    @Synchronized
     fun reset() {
         scrollback.clear()
         clearGrid(grid)
@@ -189,9 +208,11 @@ class TerminalEmulator(
         wrapPending = false
         isAlt = false
         bracketedPaste = false
+        carry = ""
         resetStyle()
     }
 
+    @Synchronized
     fun resize(newCols: Int, newRows: Int) {
         val nc = newCols.coerceIn(20, 400)
         val nr = newRows.coerceIn(5, 200)
@@ -231,6 +252,8 @@ class TerminalEmulator(
             cursorRow = lastRow.coerceIn(0, nr - 1)
             cursorCol = lastCol.coerceIn(0, nc - 1)
         }
+        mainCursorRow = mainCursorRow.coerceIn(0, nr - 1)
+        mainCursorCol = mainCursorCol.coerceIn(0, nc - 1)
         wrapPending = false
     }
 
@@ -286,7 +309,7 @@ class TerminalEmulator(
             if (c.code in 0x40..0x7E) break
             i++
         }
-        if (i >= data.length) return i
+        if (i >= data.length) return -1
         val final = data[i]
         handleCsi(final, data.substring(start, i))
         return i + 1
@@ -300,7 +323,7 @@ class TerminalEmulator(
             if (c == ESC && i + 1 < data.length && data[i + 1] == '\\') return i + 2
             i++
         }
-        return i
+        return -1
     }
 
     private fun handleCsi(final: Char, body: String) {
@@ -358,7 +381,8 @@ class TerminalEmulator(
     }
 
     private fun param(params: IntArray, index: Int, default: Int): Int {
-        return if (index < params.size) params[index] else default
+        val value = if (index < params.size) params[index] else default
+        return if (value == 0 && default == 1) 1 else value
     }
 
     private fun handleMode(privateMode: Boolean, params: IntArray, enable: Boolean) {
@@ -373,6 +397,8 @@ class TerminalEmulator(
 
     private fun enterAlt() {
         if (isAlt) return
+        mainCursorRow = cursorRow
+        mainCursorCol = cursorCol
         isAlt = true
         clearGrid(altGrid)
         cursorRow = 0
@@ -381,9 +407,10 @@ class TerminalEmulator(
     }
 
     private fun exitAlt() {
+        if (!isAlt) return
         isAlt = false
-        cursorRow = 0
-        cursorCol = 0
+        cursorRow = clampRow(mainCursorRow)
+        cursorCol = clampCol(mainCursorCol)
         wrapPending = false
     }
 
@@ -455,7 +482,7 @@ class TerminalEmulator(
 
     private fun scroll() {
         val g = activeGrid()
-        scrollback.addLast(snapshotRow(g[0]))
+        if (!isAlt) scrollback.addLast(snapshotRow(g[0]))
         for (r in 0 until rows - 1) {
             for (c in 0 until cols) {
                 g[r][c].ch = g[r + 1][c].ch
@@ -784,6 +811,8 @@ class TerminalEmulator(
     }
 
     companion object {
+        private const val MAX_CARRY = 8192
+
         private val COLOR_16 = intArrayOf(
             0xFF000000.toInt(),
             0xFFCD3131.toInt(),

@@ -41,31 +41,32 @@ object ProfileStore {
 
     fun decode(raw: String): List<SshProfile> {
         if (raw.isBlank()) return emptyList()
-        return try {
-            raw.lineSequence().filter { it.isNotBlank() }.map { line ->
-                val parts = line.split('\t')
-                if (parts.size < 10) return@map null
-                val values = parts.map { Base64.decode(it).decodeToString() }
-                val auth = runCatching { AuthType.valueOf(values[7]) }.getOrDefault(AuthType.PASSWORD)
-                val port = values[4].toIntOrNull()?.takeIf { it in 1..65535 } ?: 22
-                val username = values[5].ifBlank { "root" }
-                SshProfile(
-                    id = values[0].ifBlank { java.util.UUID.randomUUID().toString() },
-                    name = values[1].ifBlank { "$username@${values[3]}" },
-                    config = SshConfig(
-                        name = values[2],
-                        host = values[3],
-                        port = port,
-                        username = username,
-                        password = values[6],
-                        authType = auth,
-                        privateKey = values[8],
-                        passphrase = values[9]
-                    )
-                )
-            }.filterNotNull().toList()
-        } catch (_: Exception) {
-            emptyList()
-        }
+        return raw.lineSequence()
+            .filter { it.isNotBlank() }
+            .mapNotNull { line -> runCatching { decodeLine(line) }.getOrNull() }
+            .toList()
+    }
+
+    private fun decodeLine(line: String): SshProfile? {
+        val parts = line.split('\t')
+        if (parts.size < 10) return null
+        val values = parts.map { Base64.decode(it).decodeToString() }
+        val auth = runCatching { AuthType.valueOf(values[7]) }.getOrDefault(AuthType.PASSWORD)
+        val port = values[4].toIntOrNull()?.takeIf { it in 1..65535 } ?: 22
+        val username = values[5].ifBlank { "root" }
+        return SshProfile(
+            id = values[0].ifBlank { java.util.UUID.randomUUID().toString() },
+            name = values[1].ifBlank { "$username@${values[3]}" },
+            config = SshConfig(
+                name = values[2],
+                host = values[3],
+                port = port,
+                username = username,
+                password = values[6],
+                authType = auth,
+                privateKey = values[8],
+                passphrase = values[9]
+            )
+        )
     }
 }

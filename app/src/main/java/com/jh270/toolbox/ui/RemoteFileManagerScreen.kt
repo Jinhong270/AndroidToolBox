@@ -1,6 +1,7 @@
 package com.jh270.toolbox.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +82,11 @@ fun RemoteFileManagerScreen(
     val context = LocalContext.current
     var editingPath by remember(uiState.displayPath) { mutableStateOf(uiState.displayPath) }
     val listState = rememberLazyListState()
+    val dismissKeyboard = rememberKeyboardDismisser()
+
+    BackHandler(enabled = uiState.isInArchiveMode || !RemotePath.isRoot(uiState.currentPath)) {
+        viewModel.navigateUp()
+    }
 
     LaunchedEffect(uiState.displayPath) {
         listState.scrollToItem(0)
@@ -119,7 +125,7 @@ fun RemoteFileManagerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .screenPadding(padding)
                 .padding(12.dp)
         ) {
             if (uiState.backgroundTask != null) {
@@ -186,6 +192,7 @@ fun RemoteFileManagerScreen(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(
                                 onDone = {
+                                    dismissKeyboard()
                                     if (!uiState.isInArchiveMode) {
                                         viewModel.loadDirectory(RemotePath.fromDisplayPath(editingPath, uiState.remotePlatform))
                                     }

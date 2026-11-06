@@ -41,6 +41,7 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
+import java.util.concurrent.Executors
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -57,9 +58,15 @@ class SshRepository(private val context: Context) {
 
     private var shellChannel: ShellChannel? = null
     private var shellInputStream: InputStream? = null
+
+    @Volatile
     private var shellOutputStream: OutputStream? = null
     private var shellReadingThread: Thread? = null
     private var shellPending: ByteArray = ByteArray(0)
+
+    private val shellWriter = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "ssh-shell-writer").apply { isDaemon = true }
+    }
 
     @Volatile
     private var shellClosingLocally = false
@@ -313,25 +320,22 @@ class SshRepository(private val context: Context) {
         }
     }
 
-    suspend fun sendShellRaw(bytes: ByteArray) = withContext(Dispatchers.IO) {
-        runCatching {
-            shellOutputStream?.let { out ->
-                out.write(bytes)
-                out.flush()
+    suspend fun sendShellRaw(bytes: ByteArray) {
+        shellWriter.execute {
+            runCatching {
+                shellOutputStream?.let { out ->
+                    out.write(bytes)
+                    out.flush()
+                }
             }
         }
     }
 
     suspend fun sendShellInput(input: String) = sendShellRaw(input.toByteArray(Charsets.UTF_8))
 
-    suspend fun sendShellControlChar(char: Char) = withContext(Dispatchers.IO) {
-        runCatching {
-            val controlCode = (char.uppercaseChar() - 'A' + 1).toByte()
-            shellOutputStream?.let { out ->
-                out.write(byteArrayOf(controlCode))
-                out.flush()
-            }
-        }
+    suspend fun sendShellControlChar(char: Char) {
+        val controlCode = (char.uppercaseChar() - 'A' + 1).toByte()
+        sendShellRaw(byteArrayOf(controlCode))
     }
 
     suspend fun resizeTerminal(cols: Int, rows: Int) = withContext(Dispatchers.IO) {
@@ -625,19 +629,18 @@ class SshRepository(private val context: Context) {
 
     @Suppress("UNCHECKED_CAST")
     private fun deleteRecursive(channel: SftpChannel, path: String) {
-        val attrs = channel.stat(path)
-        if (attrs.isDir) {
-            val entries = channel.ls(path)
-            for (entry in entries) {
-                val name = entry.filename
-                if (name == "." || name == "..") continue
-                val childPath = RemotePath.join(path, name)
+        val entries = channel.ls(path)
+        for (entry in entries) {
+            val name = entry.filename
+            if (name == "." || name == "..") continue
+            val childPath = RemotePath.join(path, name)
+            if (entry.attrs.isDir) {
                 deleteRecursive(channel, childPath)
+            } else {
+                channel.rm(childPath)
             }
-            channel.rmdir(path)
-        } else {
-            channel.rm(path)
         }
+        channel.rmdir(path)
     }
 
     suspend fun renameFileOrFolder(file: RemoteFile, newName: String): Result<Unit> = remoteCall {

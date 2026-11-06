@@ -7,10 +7,25 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import com.jh270.toolbox.R
+import java.util.Locale
+
+internal fun safeLink(raw: String): Uri? {
+    val text = raw.trim()
+    if (text.isEmpty() || text.any { it.isWhitespace() }) return null
+    val full = if (text.contains("://") || text.startsWith("mailto:", ignoreCase = true)) text else "https://$text"
+    val uri = Uri.parse(full)
+    val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return null
+    if (scheme != "http" && scheme != "https" && scheme != "mailto") return null
+    return uri
+}
 
 internal fun openExternalLink(context: Context, url: String) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-    runCatching { context.startActivity(intent) }
+    val uri = safeLink(url)
+    if (uri == null) {
+        Toast.makeText(context, context.getString(R.string.err_open_link), Toast.LENGTH_SHORT).show()
+        return
+    }
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
         .onFailure { Toast.makeText(context, context.getString(R.string.err_open_link), Toast.LENGTH_SHORT).show() }
 }
 

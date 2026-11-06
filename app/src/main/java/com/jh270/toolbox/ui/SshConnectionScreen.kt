@@ -1,5 +1,6 @@
 package com.jh270.toolbox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +63,9 @@ fun SshConnectionScreen(
     uiState: SshUiState
 ) {
     var showPassword by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberKeyboardDismisser()
+
+    BackHandler { viewModel.returnToHome() }
 
     val isHostValid = uiState.config.host.isNotBlank()
     val isPortValid = uiState.config.port in 1..65535
@@ -84,7 +88,7 @@ fun SshConnectionScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .screenPadding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -312,7 +316,10 @@ fun SshConnectionScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
-                    onClick = { viewModel.saveCurrentProfile() },
+                    onClick = {
+                        dismissKeyboard()
+                        viewModel.saveCurrentProfile()
+                    },
                     enabled = isFormValid,
                     modifier = Modifier.weight(0.42f)
                 ) {
@@ -326,7 +333,10 @@ fun SshConnectionScreen(
                 }
 
                 Button(
-                    onClick = { viewModel.connect() },
+                    onClick = {
+                        dismissKeyboard()
+                        viewModel.connect()
+                    },
                     enabled = isFormValid && !uiState.isConnecting,
                     modifier = Modifier.weight(0.58f)
                 ) {
