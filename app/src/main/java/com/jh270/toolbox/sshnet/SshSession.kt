@@ -216,7 +216,7 @@ class SshSession {
             if (value != '\r'.code) buffer.write(value)
             if (buffer.size() > 1024) throw IOException("algorithm negotiation fail")
         }
-        val text = buffer.toString(Charsets.US_ASCII)
+        val text = String(buffer.toByteArray(), Charsets.US_ASCII)
         if (text.startsWith("SSH-")) return text
         return readLine()
     }
