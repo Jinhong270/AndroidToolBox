@@ -274,7 +274,7 @@ class SshSession {
         val host = reply.readString()
         val serverPublic = reply.readString()
         val signature = reply.readString()
-        val shared = BigInteger(1, X25519.shared(scalar, serverPublic).reversedArray())
+        val shared = BigInteger(1, X25519.shared(scalar, serverPublic))
         if (shared.signum() == 0) throw IOException("algorithm negotiation fail")
         val hash = hashExchange(hashName, clientInit, serverInit, host, publicKey, serverPublic, shared, false)
         return KexResult(shared, hash, host, signature)
@@ -498,7 +498,7 @@ class SshSession {
                 }
                 dispatch(payload)
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             running = false
             isConnected = false
             synchronized(channels) { channels.values.forEach { it.finish() } }

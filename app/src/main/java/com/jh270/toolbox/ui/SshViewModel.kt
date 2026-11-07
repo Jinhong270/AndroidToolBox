@@ -279,7 +279,13 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         val epoch = ++sessionEpoch
         viewModelScope.launch {
             _uiState.update { it.copy(isConnecting = true, connectionError = null, searchQuery = "") }
-            val result = repository.connect(config)
+            val result = try {
+                repository.connect(config)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Result.failure(error)
+            }
             if (epoch != sessionEpoch) return@launch
             result.onSuccess { pwd ->
                 clearPrivateKeyClipboard(config)

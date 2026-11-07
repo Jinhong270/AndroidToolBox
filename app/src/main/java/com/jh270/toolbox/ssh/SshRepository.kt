@@ -162,14 +162,16 @@ class SshRepository(private val context: Context) {
             lastConfig = config
             if (recovering) reconnectNotified = true
             Result.success(pwd)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             try {
                 openedChannel?.disconnect()
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
             try {
                 openedSession?.disconnect()
-            } catch (_: Exception) {}
-            disconnectInternal()
+            } catch (_: Throwable) {}
+            try {
+                disconnectInternal()
+            } catch (_: Throwable) {}
             Result.failure(Exception(formatSshException(e)))
         }
     }
