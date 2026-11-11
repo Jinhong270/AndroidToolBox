@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -69,6 +71,9 @@ import com.jh270.toolbox.data.FilePreview
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun FileEditorScreen(
@@ -112,12 +117,25 @@ fun FileEditorScreen(
         }
     }
 
-    val commentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    val stringColor = MaterialTheme.colorScheme.tertiary
-    val numberColor = MaterialTheme.colorScheme.secondary
-    val keywordColor = MaterialTheme.colorScheme.primary
-    val highlight = remember(commentColor, stringColor, numberColor, keywordColor) {
-        EditorVisualTransformation(commentColor, stringColor, numberColor, keywordColor)
+    val language = remember(bindKey, incoming) { detectSourceLanguage(bindKey, incoming.orEmpty()) }
+    val tokens by produceState("" to emptyList<SourceSpan>(), editedText, language) {
+        if (editedText.length > 10_000) delay(80)
+        value = withContext(Dispatchers.Default) { editedText to sourceSpans(editedText, language) }
+    }
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val highlight = remember(dark, language, tokens) {
+        EditorVisualTransformation(
+            comment = if (dark) Color(0xFF98A6B7) else Color(0xFF617365),
+            string = if (dark) Color(0xFFA8D991) else Color(0xFF25713C),
+            number = if (dark) Color(0xFFFFBC85) else Color(0xFF995000),
+            keyword = if (dark) Color(0xFFC5A5FF) else Color(0xFF7543AD),
+            language = language,
+            type = if (dark) Color(0xFF66D9CC) else Color(0xFF006D77),
+            function = if (dark) Color(0xFFFFD580) else Color(0xFF805A00),
+            property = if (dark) Color(0xFF9CDCFE) else Color(0xFF175F9C),
+            suppliedText = tokens.first,
+            suppliedSpans = tokens.second,
+        )
     }
     val editorStyle = TextStyle(
         fontFamily = FontFamily.Monospace,
@@ -224,7 +242,7 @@ fun FileEditorScreen(
                             if (filePreview.editable) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = filePreview.charsetName,
+                                    text = "${language.label} · ${filePreview.charsetName}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )

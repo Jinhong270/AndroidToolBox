@@ -28,7 +28,12 @@ internal fun softWrap(text: String): SoftWrap {
     for (index in text.indices) {
         map[index] = display.length
         display.append(text[index])
-        if (text[index] != '\n') display.append('\u200B')
+        val next = text.getOrNull(index + 1)
+        val continuation = next != null && (
+            Character.isLowSurrogate(next) || next == '\u200D' || text[index] == '\u200D' ||
+                next == '\uFE0F' || Character.getType(next) == Character.NON_SPACING_MARK.toInt()
+            )
+        if (text[index] != '\n' && !continuation) display.append('\u200B')
     }
     map[text.length] = display.length
     return SoftWrap(display.toString(), map)
@@ -87,22 +92,43 @@ internal class EditorVisualTransformation(
     private val string: Color,
     private val number: Color,
     private val keyword: Color,
+    private val language: SourceLanguage = SourceLanguage.GENERIC,
+    private val type: Color = Color(0xFF4DB6AC),
+    private val function: Color = Color(0xFFDCAA5F),
+    private val property: Color = Color(0xFF5C9CCC),
+    private val suppliedSpans: List<SourceSpan>? = null,
+    private val suppliedText: String? = null,
 ) : VisualTransformation {
+    private var cachedRaw: String? = null
+    private var cachedResult: TransformedText? = null
+
     override fun filter(text: AnnotatedString): TransformedText {
         val raw = text.text
+        if (raw == cachedRaw) cachedResult?.let { return it }
         val wrapped = softWrap(raw)
         val builder = AnnotatedString.Builder(wrapped.text)
-        for (span in sourceSpans(raw)) {
+        val spans = if (suppliedText != null) {
+            if (suppliedText == raw) suppliedSpans.orEmpty() else emptyList()
+        } else sourceSpans(raw, language)
+        for (span in spans) {
             val color = when (span.kind) {
                 SourceKind.COMMENT -> comment
                 SourceKind.STRING -> string
                 SourceKind.NUMBER -> number
                 SourceKind.KEYWORD -> keyword
+                SourceKind.TYPE -> type
+                SourceKind.FUNCTION -> function
+                SourceKind.PROPERTY -> property
+                SourceKind.OPERATOR -> keyword.copy(alpha = 0.8f)
+                SourceKind.HEADING -> keyword
             }
             val start = wrapped.map[span.start.coerceIn(0, raw.length)]
             val end = wrapped.map[span.end.coerceIn(0, raw.length)]
             if (start < end) builder.addStyle(SpanStyle(color = color), start, end)
         }
-        return TransformedText(builder.toAnnotatedString(), SoftWrapOffsetMapping(wrapped.map))
+        return TransformedText(builder.toAnnotatedString(), SoftWrapOffsetMapping(wrapped.map)).also {
+            cachedRaw = raw
+            cachedResult = it
+        }
     }
 }
