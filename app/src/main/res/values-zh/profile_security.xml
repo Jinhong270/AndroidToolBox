@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_storage_error">无法安全读取或保存连接，已有数据未被重置。请解锁设备后重试。</string>
+    <string name="profile_storage_retry">重新读取已保存连接</string>
+</resources>

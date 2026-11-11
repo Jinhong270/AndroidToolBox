@@ -4,22 +4,22 @@ import android.content.Context
 import kotlin.io.encoding.Base64
 
 object ProfileStore {
-    private const val PREFS = "toolbox_profiles"
-    private const val KEY = "profiles"
-
+    @Synchronized
     fun load(context: Context): List<SshProfile> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return emptyList()
-        return decode(raw)
+        return storage(context).load()
     }
 
+    @Synchronized
     fun save(context: Context, profiles: List<SshProfile>) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY, encode(profiles))
-            .apply()
+        storage(context).save(profiles)
     }
 
-    fun encode(profiles: List<SshProfile>): String {
+    private fun storage(context: Context) = EncryptedProfileStorage(
+        AndroidProfileStorage(context),
+        ProfileEncryption(AndroidProfileKey::get)
+    )
+
+    internal fun encode(profiles: List<SshProfile>): String {
         return profiles.joinToString("\n") { profile ->
             val config = profile.config
             listOf(
@@ -39,29 +39,28 @@ object ProfileStore {
         }
     }
 
-    fun decode(raw: String): List<SshProfile> {
+    internal fun decode(raw: String): List<SshProfile> {
         if (raw.isBlank()) return emptyList()
         return raw.lineSequence()
             .filter { it.isNotBlank() }
-            .mapNotNull { line -> runCatching { decodeLine(line) }.getOrNull() }
+            .map(::decodeLine)
             .toList()
     }
 
-    private fun decodeLine(line: String): SshProfile? {
+    private fun decodeLine(line: String): SshProfile {
         val parts = line.split('\t')
-        if (parts.size < 10) return null
-        val values = parts.map { Base64.decode(it).decodeToString() }
-        val auth = runCatching { AuthType.valueOf(values[7]) }.getOrDefault(AuthType.PASSWORD)
-        val port = values[4].toIntOrNull()?.takeIf { it in 1..65535 } ?: 22
-        val username = values[5].ifBlank { "root" }
+        require(parts.size == 10)
+        val values = parts.map { Base64.decode(it).decodeToString(throwOnInvalidSequence = true) }
+        val auth = AuthType.valueOf(values[7])
+        val port = values[4].toInt().also { require(it in 1..65535) }
         return SshProfile(
-            id = values[0].ifBlank { java.util.UUID.randomUUID().toString() },
-            name = values[1].ifBlank { "$username@${values[3]}" },
+            id = values[0],
+            name = values[1],
             config = SshConfig(
                 name = values[2],
                 host = values[3],
                 port = port,
-                username = username,
+                username = values[5],
                 password = values[6],
                 authType = auth,
                 privateKey = values[8],

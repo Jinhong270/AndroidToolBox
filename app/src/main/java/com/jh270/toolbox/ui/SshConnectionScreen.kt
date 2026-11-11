@@ -95,6 +95,24 @@ fun SshConnectionScreen(
         ) {
             ConnectionHero()
 
+            if (uiState.profileStorageError != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(uiState.profileStorageError, color = MaterialTheme.colorScheme.onErrorContainer)
+                        TextButton(onClick = viewModel::reloadProfiles, enabled = !uiState.isProfileStorageBusy) {
+                            Text(stringResource(R.string.profile_storage_retry))
+                        }
+                    }
+                }
+            }
+            if (uiState.isProfileStorageBusy) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+
             if (uiState.savedProfiles.isNotEmpty()) {
                 SectionHeader(stringResource(R.string.ssh_saved_hosts))
                 SettingsGroup {
@@ -133,7 +151,10 @@ fun SshConnectionScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { viewModel.deleteProfile(profile) }) {
+                                IconButton(
+                                    onClick = { viewModel.deleteProfile(profile) },
+                                    enabled = !uiState.isProfileStorageBusy && uiState.profileStorageError == null,
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = stringResource(R.string.cd_delete_profile),
@@ -320,7 +341,7 @@ fun SshConnectionScreen(
                         dismissKeyboard()
                         viewModel.saveCurrentProfile()
                     },
-                    enabled = isFormValid,
+                    enabled = isFormValid && !uiState.isProfileStorageBusy && uiState.profileStorageError == null,
                     modifier = Modifier.weight(0.42f)
                 ) {
                     Icon(

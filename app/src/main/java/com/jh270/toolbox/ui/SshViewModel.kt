@@ -16,6 +16,7 @@ import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
 import com.jh270.toolbox.data.AppSettings
 import com.jh270.toolbox.data.ProfileStore
+import com.jh270.toolbox.data.ProfileStorageException
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
@@ -26,6 +27,8 @@ import com.jh270.toolbox.ssh.TerminalEmulator
 import com.jh270.toolbox.ssh.TerminalKeepAliveService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +46,8 @@ data class SshUiState(
     val config: SshConfig = SshConfig(),
     val backgroundTask: String? = null,
     val savedProfiles: List<SshProfile> = emptyList(),
+    val profileStorageError: String? = null,
+    val isProfileStorageBusy: Boolean = false,
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
     val connectionError: String? = null,
@@ -124,13 +129,28 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         val app = getApplication<Application>()
         _uiState.update {
             it.copy(
-                savedProfiles = ProfileStore.load(app),
                 terminalBackground = AppSettings.terminalBackground(app),
                 terminalSelection = AppSettings.terminalSelection(app),
                 clearClipboardAfterKeyLogin = AppSettings.clearClipboardAfterKeyLogin(app),
                 hideSystemFiles = AppSettings.hideSystemFiles(app),
                 hideUserFiles = AppSettings.hideUserFiles(app)
             )
+        }
+        reloadProfiles()
+    }
+
+    fun reloadProfiles() {
+        if (uiState.value.isProfileStorageBusy) return
+        _uiState.update { it.copy(isProfileStorageBusy = true) }
+        viewModelScope.launch {
+            try {
+                val profiles = withContext(Dispatchers.IO) { ProfileStore.load(getApplication()) }
+                _uiState.update { it.copy(savedProfiles = profiles, profileStorageError = null) }
+            } catch (_: ProfileStorageException) {
+                _uiState.update { it.copy(profileStorageError = text(R.string.profile_storage_error)) }
+            } finally {
+                _uiState.update { it.copy(isProfileStorageBusy = false) }
+            }
         }
     }
 
@@ -171,8 +191,17 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
         TerminalKeepAliveService.releaseWakeLock()
     }
 
-    private fun persistProfiles(profiles: List<SshProfile>) {
-        ProfileStore.save(getApplication(), profiles)
+    private suspend fun persistProfiles(profiles: List<SshProfile>): Boolean {
+        return try {
+            withContext(Dispatchers.IO) { ProfileStore.save(getApplication(), profiles) }
+            _uiState.update { it.copy(savedProfiles = profiles, profileStorageError = null) }
+            true
+        } catch (_: ProfileStorageException) {
+            _uiState.update { it.copy(profileStorageError = text(R.string.profile_storage_error)) }
+            false
+        } finally {
+            _uiState.update { it.copy(isProfileStorageBusy = false) }
+        }
     }
 
     fun newConfig() {
@@ -230,6 +259,7 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun saveCurrentProfile() {
+        if (uiState.value.isProfileStorageBusy || uiState.value.profileStorageError != null) return
         val config = uiState.value.config
         if (config.host.isBlank()) return
         val profileName = config.name.ifBlank { "${config.username}@${config.host}" }
@@ -240,14 +270,24 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
             config = config.copy(name = profileName)
         )
         val updated = uiState.value.savedProfiles.filter { it.id != newProfile.id && (it.config.host != config.host || it.config.port != config.port) } + newProfile
-        persistProfiles(updated)
-        _uiState.update { it.copy(savedProfiles = updated, config = newProfile.config, actionSuccessMessage = text(R.string.msg_saved)) }
+        _uiState.update { it.copy(isProfileStorageBusy = true) }
+        viewModelScope.launch {
+            if (persistProfiles(updated)) {
+                _uiState.update {
+                    it.copy(
+                        config = if (it.config == config) newProfile.config else it.config,
+                        actionSuccessMessage = text(R.string.msg_saved)
+                    )
+                }
+            }
+        }
     }
 
     fun deleteProfile(profile: SshProfile) {
+        if (uiState.value.isProfileStorageBusy || uiState.value.profileStorageError != null) return
         val updated = uiState.value.savedProfiles.filter { it.id != profile.id }
-        persistProfiles(updated)
-        _uiState.update { it.copy(savedProfiles = updated) }
+        _uiState.update { it.copy(isProfileStorageBusy = true) }
+        viewModelScope.launch { persistProfiles(updated) }
     }
 
     fun updateConfigName(name: String) {

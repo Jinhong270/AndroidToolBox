@@ -32,7 +32,10 @@ data class SshConfig(
     val authType: AuthType = AuthType.PASSWORD,
     val privateKey: String = "",
     val passphrase: String = "",
-)
+) {
+    override fun toString(): String =
+        "SshConfig(name=$name, host=$host, port=$port, username=$username, authType=$authType, password=[REDACTED], privateKey=[REDACTED], passphrase=[REDACTED])"
+}
 
 data class SshProfile(
     val id: String = java.util.UUID.randomUUID().toString(),
