@@ -18,6 +18,34 @@ internal fun replaceEditorSelection(value: TextFieldValue, insertion: String, ca
     )
 }
 
+private fun isProtectedEditorPosition(text: String, position: Int, spans: List<SourceSpan>): Boolean {
+    var low = 0
+    var high = spans.lastIndex
+    while (low <= high) {
+        val middle = (low + high) ushr 1
+        if (spans[middle].start < position) low = middle + 1 else high = middle - 1
+    }
+    val span = spans.getOrNull(high) ?: return false
+    if ((span.kind != SourceKind.COMMENT && span.kind != SourceKind.STRING) || position > span.end) return false
+    if (position < span.end) return true
+    return run {
+        val token = text.substring(span.start, span.end)
+        if (span.kind == SourceKind.COMMENT) {
+            when {
+                token.startsWith("/*") -> !token.endsWith("*/")
+                token.startsWith("<!--") -> !token.endsWith("-->")
+                token.startsWith("<#") -> !token.endsWith("#>")
+                else -> true
+            }
+        } else {
+            val quote = token.first()
+            val triple = token.startsWith(quote.toString().repeat(3))
+            if (triple) token.length < 6 || !token.endsWith(quote.toString().repeat(3))
+            else token.length < 2 || token.last() != quote || token.dropLast(1).takeLastWhile { it == '\\' }.length % 2 == 1
+        }
+    }
+}
+
 internal fun assistEditorChange(
     old: TextFieldValue,
     next: TextFieldValue,
@@ -34,8 +62,7 @@ internal fun assistEditorChange(
         val char = next.text[start]
         if (char !in "\n()[]{}'\"") return next
         val tokens = spans ?: sourceSpans(old.text, language)
-        val protected = tokens.any { start > it.start && start < it.end && it.kind in setOf(SourceKind.COMMENT, SourceKind.STRING) } ||
-            tokens.any { start == it.end && it.kind == SourceKind.COMMENT && old.text.getOrNull(start - 1) != '\n' }
+        val protected = isProtectedEditorPosition(old.text, start, tokens)
         if (char == '\n') {
             val lineStart = old.text.lastIndexOf('\n', (start - 1).coerceAtLeast(-1)) + 1
             val before = old.text.substring(lineStart, start)
@@ -114,7 +141,7 @@ internal fun editorDocumentWords(text: String): List<String> =
 internal fun editorCompletions(value: TextFieldValue, language: SourceLanguage, words: List<String>, spans: List<SourceSpan>): List<EditorCompletion> {
     if (!value.selection.collapsed || value.composition != null || language in setOf(SourceLanguage.PLAIN, SourceLanguage.MARKDOWN)) return emptyList()
     val cursor = value.selection.start
-    if (spans.any { cursor > it.start && cursor <= it.end && it.kind in setOf(SourceKind.STRING, SourceKind.COMMENT) }) return emptyList()
+    if (isProtectedEditorPosition(value.text, cursor, spans)) return emptyList()
     var start = cursor
     while (start > 0 && (value.text[start - 1].isLetterOrDigit() || value.text[start - 1] in "_$")) start--
     val prefix = value.text.substring(start, cursor)
