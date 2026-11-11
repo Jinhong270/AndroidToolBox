@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="file_visibility_settings">文件显示设置</string>
+    <string name="hide_system_files">自动隐藏系统隐藏文件</string>
+    <string name="hide_user_files">自动隐藏用户隐藏文件</string>
+    <string name="file_visibility_explanation">系统隐藏文件包含 Windows 系统属性文件及 .DS_Store 等系统元数据。用户隐藏文件包含 Windows 隐藏属性文件及 .ssh、.git 等 Unix 点文件。读取 Windows 属性需要服务器允许使用 PowerShell。压缩包内的文件也会按文件名应用这些设置。</string>
+    <string name="file_visibility_done">完成</string>
+</resources>

@@ -88,6 +88,8 @@ data class SshUiState(
     val actionErrorMessage: String? = null,
     val searchQuery: String = "",
     val clearClipboardAfterKeyLogin: Boolean = true,
+    val hideSystemFiles: Boolean = true,
+    val hideUserFiles: Boolean = false,
 ) {
     val displayPath: String
         get() = if (isInArchiveMode) {
@@ -125,7 +127,9 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
                 savedProfiles = ProfileStore.load(app),
                 terminalBackground = AppSettings.terminalBackground(app),
                 terminalSelection = AppSettings.terminalSelection(app),
-                clearClipboardAfterKeyLogin = AppSettings.clearClipboardAfterKeyLogin(app)
+                clearClipboardAfterKeyLogin = AppSettings.clearClipboardAfterKeyLogin(app),
+                hideSystemFiles = AppSettings.hideSystemFiles(app),
+                hideUserFiles = AppSettings.hideUserFiles(app)
             )
         }
     }
@@ -143,6 +147,16 @@ class SshViewModel(app: Application) : AndroidViewModel(app) {
     fun setClearClipboardAfterKeyLogin(enabled: Boolean) {
         AppSettings.setClearClipboardAfterKeyLogin(getApplication(), enabled)
         _uiState.update { it.copy(clearClipboardAfterKeyLogin = enabled) }
+    }
+
+    fun setHideSystemFiles(enabled: Boolean) {
+        AppSettings.setHideSystemFiles(getApplication(), enabled)
+        _uiState.update { it.copy(hideSystemFiles = enabled) }
+    }
+
+    fun setHideUserFiles(enabled: Boolean) {
+        AppSettings.setHideUserFiles(getApplication(), enabled)
+        _uiState.update { it.copy(hideUserFiles = enabled) }
     }
 
     private fun startKeepAlive() {

@@ -38,8 +38,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jh270.toolbox.R
 import com.jh270.toolbox.data.FileType
+import com.jh270.toolbox.data.FileVisibility
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
@@ -83,6 +87,7 @@ fun RemoteFileManagerScreen(
     var editingPath by remember(uiState.displayPath) { mutableStateOf(uiState.displayPath) }
     val listState = rememberLazyListState()
     val dismissKeyboard = rememberKeyboardDismisser()
+    var showVisibilitySettings by remember { mutableStateOf(false) }
 
     BackHandler(enabled = uiState.isInArchiveMode || !RemotePath.isRoot(uiState.currentPath)) {
         viewModel.navigateUp()
@@ -107,6 +112,9 @@ fun RemoteFileManagerScreen(
             RemotePlatform.UNKNOWN -> stringResource(R.string.platform_unknown)
         },
         actions = {
+            IconButton(onClick = { showVisibilitySettings = true }) {
+                Icon(Icons.Default.Tune, contentDescription = stringResource(R.string.file_visibility_settings))
+            }
             IconButton(onClick = { viewModel.openTerminal() }) {
                 Icon(
                     imageVector = Icons.Default.Terminal,
@@ -319,7 +327,8 @@ fun RemoteFileManagerScreen(
                     }
 
                     val filteredFiles = activeFiles.filter {
-                        it.name == ".." || uiState.searchQuery.isBlank() || it.name.contains(uiState.searchQuery, ignoreCase = true)
+                        FileVisibility.isVisible(it, uiState.hideSystemFiles, uiState.hideUserFiles) &&
+                            (it.name == ".." || uiState.searchQuery.isBlank() || it.name.contains(uiState.searchQuery, ignoreCase = true))
                     }
 
                     if (filteredFiles.isEmpty()) {
@@ -368,6 +377,35 @@ fun RemoteFileManagerScreen(
                 }
             }
         }
+    }
+
+    if (showVisibilitySettings) {
+        AlertDialog(
+            onDismissRequest = { showVisibilitySettings = false },
+            title = { Text(stringResource(R.string.file_visibility_settings)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.hide_system_files), modifier = Modifier.weight(1f))
+                        Switch(checked = uiState.hideSystemFiles, onCheckedChange = viewModel::setHideSystemFiles)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.hide_user_files), modifier = Modifier.weight(1f))
+                        Switch(checked = uiState.hideUserFiles, onCheckedChange = viewModel::setHideUserFiles)
+                    }
+                    Text(
+                        stringResource(R.string.file_visibility_explanation),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showVisibilitySettings = false }) {
+                    Text(stringResource(R.string.file_visibility_done))
+                }
+            }
+        )
     }
 
     if (uiState.showCreateFolderDialog) {

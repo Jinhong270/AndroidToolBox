@@ -12,6 +12,7 @@ import com.jh270.toolbox.data.AuthType
 import com.jh270.toolbox.data.ChecksumResult
 import com.jh270.toolbox.data.FilePreview
 import com.jh270.toolbox.data.FileType
+import com.jh270.toolbox.data.FileVisibility
 import com.jh270.toolbox.data.RemoteFile
 import com.jh270.toolbox.data.RemotePath
 import com.jh270.toolbox.data.RemotePlatform
@@ -382,6 +383,14 @@ class SshRepository(private val context: Context) {
 
             @Suppress("UNCHECKED_CAST")
             val entries = channel.ls(targetPath)
+            val windowsAttributes = if (remotePlatform == RemotePlatform.WINDOWS && RemotePath.looksLikeWindows(targetPath)) {
+                runCatching {
+                    val sess = session ?: notConnected()
+                    FileVisibility.parseWindowsAttributes(runExecCapture(sess, FileVisibility.windowsAttributesCommand(targetPath), 5000))
+                }.getOrDefault(emptyMap())
+            } else {
+                emptyMap()
+            }
 
             val fileItems = mutableListOf<RemoteFile>()
             for (entry in entries) {
@@ -411,7 +420,8 @@ class SshRepository(private val context: Context) {
                         owner = owner,
                         group = group,
                         modifiedTime = mTime,
-                        fileType = type
+                        fileType = type,
+                        hiddenKind = FileVisibility.classify(name, remotePlatform, windowsAttributes[name])
                     )
                 )
             }

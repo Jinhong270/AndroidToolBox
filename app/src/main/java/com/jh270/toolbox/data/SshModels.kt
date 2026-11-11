@@ -50,6 +50,7 @@ data class RemoteFile(
     val group: String = "root",
     val modifiedTime: Long,
     val fileType: FileType = FileType.UNKNOWN,
+    val hiddenKind: HiddenFileKind = FileVisibility.classify(name),
 )
 
 data class ArchiveEntryItem(

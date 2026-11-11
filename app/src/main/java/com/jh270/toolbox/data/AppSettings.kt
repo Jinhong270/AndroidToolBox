@@ -8,6 +8,8 @@ object AppSettings {
     private const val TERMINAL_BG = "terminal_background"
     private const val TERMINAL_SELECTION = "terminal_selection"
     private const val CLEAR_CLIPBOARD_AFTER_KEY_LOGIN = "clear_clipboard_after_key_login"
+    private const val HIDE_SYSTEM_FILES = "hide_system_files"
+    private const val HIDE_USER_FILES = "hide_user_files"
 
     const val DEFAULT_TERMINAL_BG = 0xFF0A0E14.toInt()
     const val DEFAULT_TERMINAL_SELECTION = 0xCC2563EB.toInt()
@@ -38,5 +40,17 @@ object AppSettings {
 
     fun setClearClipboardAfterKeyLogin(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(CLEAR_CLIPBOARD_AFTER_KEY_LOGIN, enabled).apply()
+    }
+
+    fun hideSystemFiles(context: Context): Boolean = prefs(context).getBoolean(HIDE_SYSTEM_FILES, true)
+
+    fun setHideSystemFiles(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(HIDE_SYSTEM_FILES, enabled).apply()
+    }
+
+    fun hideUserFiles(context: Context): Boolean = prefs(context).getBoolean(HIDE_USER_FILES, false)
+
+    fun setHideUserFiles(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(HIDE_USER_FILES, enabled).apply()
     }
 }

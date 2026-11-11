@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="file_visibility_settings">File visibility</string>
+    <string name="hide_system_files">Automatically hide system hidden files</string>
+    <string name="hide_user_files">Automatically hide user hidden files</string>
+    <string name="file_visibility_explanation">System files include Windows System attributes and known OS metadata such as .DS_Store. User hidden files include Windows Hidden attributes and Unix dotfiles such as .ssh and .git. Windows attributes require PowerShell access on the server. These settings also apply to archive entries by filename.</string>
+    <string name="file_visibility_done">Done</string>
+</resources>
