@@ -1,129 +1,83 @@
 package com.jh270.toolbox.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.absolutePadding
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.AbsoluteAlignment
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jh270.toolbox.R
 import com.jh270.toolbox.data.FilePreview
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private data class EditorAnalysis(val text: String, val spans: List<SourceSpan>, val words: List<String>)
 
 @Composable
 fun FileEditorScreen(
-    filePreview: FilePreview?,
-    isLoading: Boolean,
-    errorMessage: String?,
-    isSaving: Boolean,
-    saveSuccessMessage: String?,
-    saveErrorMessage: String?,
-    allowSave: Boolean,
-    onSaveContent: (String, String) -> Unit,
-    onDismiss: () -> Unit
+    filePreview: FilePreview?, isLoading: Boolean, errorMessage: String?, isSaving: Boolean,
+    saveSuccessMessage: String?, saveErrorMessage: String?, allowSave: Boolean,
+    onSaveContent: (String, String) -> Unit, onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var editedText by remember { mutableStateOf("") }
-    var boundPath by remember { mutableStateOf<String?>(null) }
-    val incoming = filePreview?.content
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val bindKey = filePreview?.path
-    if (incoming != null && boundPath != bindKey) {
-        editedText = incoming
-        boundPath = bindKey
-    }
-    val preview = filePreview
-    val writable = preview?.takeIf { allowSave && it.editable && !it.truncated && it.content != null }
-    val markdown = preview?.let { isMarkdownFile(it.name) && it.content != null } == true
+    val incoming = filePreview?.content
+    var editor by remember(bindKey) { mutableStateOf(TextFieldValue(incoming.orEmpty())) }
+    val history = remember(bindKey) { EditorHistory() }
+    val writable = filePreview?.takeIf { allowSave && it.editable && !it.truncated && it.content != null }
+    val markdown = filePreview?.let { isMarkdownFile(it.name) && it.content != null } == true
     var markdownMode by remember(bindKey) { mutableStateOf<String?>(null) }
+    var showDiscard by remember(bindKey) { mutableStateOf(false) }
+    var showSearch by remember(bindKey) { mutableStateOf(false) }
+    var query by remember(bindKey) { mutableStateOf("") }
+    var replacement by remember(bindKey) { mutableStateOf("") }
+    var matchCase by remember { mutableStateOf(false) }
+    var wrap by remember { mutableStateOf(true) }
+    var fontSize by remember { mutableIntStateOf(13) }
+    val dirty = writable != null && editor.text != writable.content
     val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(saveSuccessMessage) {
-        if (saveSuccessMessage != null) {
-            Toast.makeText(context, saveSuccessMessage, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    LaunchedEffect(bindKey, writable != null, markdownMode) {
-        if (writable != null && (!markdown || markdownMode == "edit")) {
-            try {
-                focusRequester.requestFocus()
-            } catch (_: IllegalStateException) {
-            }
-        }
-    }
-
+    val sourceVisible = incoming != null && (!markdown || markdownMode == "edit")
+    val requestClose: () -> Unit = { if (!isSaving) { if (dirty) showDiscard = true else onDismiss() } }
+    val save: () -> Unit = { if (dirty && !isSaving) onSaveContent(writable!!.path, editor.text) }
     val language = remember(bindKey, incoming) { detectSourceLanguage(bindKey, incoming.orEmpty()) }
-    val tokens by produceState("" to emptyList<SourceSpan>(), editedText, language) {
-        if (editedText.length > 10_000) delay(80)
-        value = withContext(Dispatchers.Default) { editedText to sourceSpans(editedText, language) }
+    val indent = remember(bindKey, incoming, language) { editorIndent(incoming.orEmpty(), language) }
+    val analysis by produceState(EditorAnalysis("", emptyList(), emptyList()), editor.text, language) {
+        val snapshot = editor.text
+        if (snapshot.length > 10_000) delay(80)
+        value = withContext(Dispatchers.Default) { EditorAnalysis(snapshot, sourceSpans(snapshot, language), editorDocumentWords(snapshot)) }
     }
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val highlight = remember(dark, language, tokens) {
+    val highlight = remember(dark, language, analysis, wrap) {
         EditorVisualTransformation(
             comment = if (dark) Color(0xFF98A6B7) else Color(0xFF617365),
             string = if (dark) Color(0xFFA8D991) else Color(0xFF25713C),
@@ -133,34 +87,37 @@ fun FileEditorScreen(
             type = if (dark) Color(0xFF66D9CC) else Color(0xFF006D77),
             function = if (dark) Color(0xFFFFD580) else Color(0xFF805A00),
             property = if (dark) Color(0xFF9CDCFE) else Color(0xFF175F9C),
-            suppliedText = tokens.first,
-            suppliedSpans = tokens.second,
+            suppliedText = analysis.text, suppliedSpans = analysis.spans, wrap = wrap,
         )
     }
-    val editorStyle = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp,
-        lineHeight = 20.sp,
-        color = MaterialTheme.colorScheme.onSurface,
-        fontWeight = FontWeight.Normal
-    )
-    val gutterColor = MaterialTheme.colorScheme.outline
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnClickOutside = false,
-            decorFitsSystemWindows = false,
-        )
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
-        ) {
+    fun change(next: TextFieldValue) { history.record(editor, next); editor = next }
+    fun indentSelection(outdent: Boolean) {
+        if (writable != null) { change(indentEditorSelection(editor, indent, outdent)); focusRequester.requestFocus() }
+    }
+    fun undo() { if (writable != null) history.undo(editor)?.let { editor = it } }
+    fun redo() { if (writable != null) history.redo(editor)?.let { editor = it } }
+    val matches = remember(editor.text, query, matchCase) { editorMatches(editor.text, query, matchCase) }
+    val selectedMatch = matches.indexOfFirst { it == editor.selection }
+    fun findMatch(forward: Boolean) {
+        if (matches.isEmpty()) return
+        val target = if (forward) matches.firstOrNull { it.start >= editor.selection.max && it != editor.selection } ?: matches.first()
+            else matches.lastOrNull { it.end <= editor.selection.min && it != editor.selection } ?: matches.last()
+        editor = editor.copy(selection = target, composition = null)
+    }
+    LaunchedEffect(query, matchCase) { if (query.isNotEmpty()) findMatch(true) }
+    LaunchedEffect(saveSuccessMessage) {
+        if (saveSuccessMessage != null) Toast.makeText(context, saveSuccessMessage, Toast.LENGTH_SHORT).show()
+    }
+    LaunchedEffect(bindKey, sourceVisible, writable != null) {
+        if (sourceVisible && writable != null) focusRequester.requestFocus()
+        else if (markdownMode == "preview") { focus.clearFocus(); keyboard?.hide() }
+    }
+    Dialog(onDismissRequest = requestClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, decorFitsSystemWindows = false)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             ToolBoxScaffold(
-                title = filePreview?.name ?: if (isLoading) stringResource(R.string.opening_file) else stringResource(R.string.file_fallback),
-                onBack = onDismiss,
+                title = (filePreview?.name ?: stringResource(if (isLoading) R.string.opening_file else R.string.file_fallback)) + if (dirty) " *" else "",
+                onBack = requestClose,
                 actions = {
                     if (markdown && markdownMode != null) {
                         TextButton(onClick = { markdownMode = if (markdownMode == "preview") "edit" else "preview" }) {
@@ -169,286 +126,127 @@ fun FileEditorScreen(
                             } else R.string.markdown_preview))
                         }
                     }
-                    if (filePreview?.content != null) {
-                        IconButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("FileContent", editedText))
-                                Toast.makeText(context, context.getString(R.string.copied_text), Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Icon(imageVector = Icons.Default.ContentCopy, contentDescription = stringResource(R.string.cd_copy))
-                        }
+                    if (incoming != null) {
+                        IconButton(onClick = { copyPlainText(context, editor.text) }) { Icon(Icons.Default.ContentCopy, stringResource(R.string.cd_copy)) }
                     }
                     if (writable != null) {
-                        IconButton(
-                            onClick = { onSaveContent(writable.path, editedText) },
-                            enabled = !isSaving && editedText != writable.content
-                        ) {
-                            if (isSaving) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(imageVector = Icons.Default.Save, contentDescription = stringResource(R.string.cd_save))
-                            }
+                        IconButton(onClick = save, enabled = !isSaving && dirty) {
+                            if (isSaving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Save, stringResource(R.string.cd_save))
                         }
                     }
-                }
+                },
             ) { padding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .imePadding()
-                ) {
+                Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
                     if (filePreview != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = filePreview.path,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Text(
-                                    text = formatFileSize(filePreview.size),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                                Text(
-                                    text = filePreview.permissions,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                                Text(
-                                    text = formatDate(filePreview.modifiedTime),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
+                        Text(filePreview.path, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (filePreview.truncated) Text(stringResource(R.string.preview_truncated), Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        else if (filePreview.editable && !allowSave) Text(stringResource(R.string.archive_view_only), Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.bodySmall)
+                        if (saveErrorMessage != null) Text(saveErrorMessage, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (sourceVisible) {
+                        if (!showSearch) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = ::undo, enabled = writable != null && history.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+                            IconButton(onClick = ::redo, enabled = writable != null && history.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+                            IconButton(onClick = { showSearch = !showSearch }) { Icon(Icons.Default.Search, stringResource(R.string.editor_find)) }
+                            if (writable != null) {
+                                TextButton(onClick = { indentSelection(false) }) { Text(stringResource(R.string.editor_indent)) }
+                                TextButton(onClick = { indentSelection(true) }) { Text(stringResource(R.string.editor_outdent)) }
                             }
-                            if (filePreview.editable) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "${language.label} · ${filePreview.charsetName}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                            if (filePreview.truncated) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = stringResource(R.string.preview_truncated),
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            } else if (filePreview.editable && !allowSave) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = stringResource(R.string.archive_view_only),
-                                    color = MaterialTheme.colorScheme.outline,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            if (saveErrorMessage != null) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = saveErrorMessage,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
+                            FilterChip(selected = wrap, onClick = { wrap = !wrap }, label = { Text(stringResource(R.string.editor_wrap)) })
+                            TextButton(onClick = { fontSize = (fontSize - 1).coerceAtLeast(10) }, enabled = fontSize > 10) { Text("A−") }
+                            TextButton(onClick = { fontSize = (fontSize + 1).coerceAtMost(24) }, enabled = fontSize < 24) { Text("A+") }
+                        }
+                        if (showSearch) {
+                            EditorSearchPanel(query, { query = it }, replacement, { replacement = it }, matchCase, { matchCase = it },
+                                selectedMatch + 1, matches.size, writable != null, { findMatch(false) }, { findMatch(true) },
+                                onReplace = { if (selectedMatch >= 0) change(replaceEditorSelection(editor, replacement)) else findMatch(true) },
+                                onReplaceAll = { change(replaceAllEditorMatches(editor, query, replacement, matchCase)) },
+                                onClose = { showSearch = false; focusRequester.requestFocus() })
                         }
                     }
-
                     when {
-                        isLoading -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator()
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(text = stringResource(R.string.loading_remote_content))
+                        isLoading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                        markdown && markdownMode == "preview" -> {
+                            Text(stringResource(R.string.markdown_offline), Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            MarkdownPreview(editor.text, Modifier.weight(1f).fillMaxWidth())
+                        }
+                        markdown && markdownMode == null -> Box(Modifier.weight(1f).fillMaxWidth())
+                        sourceVisible -> {
+                            CodeEditor(
+                                value = editor,
+                                onValueChange = { next ->
+                                    if (writable == null) editor = editor.copy(selection = next.selection)
+                                    else change(assistEditorChange(editor, next, language, indent, analysis.spans.takeIf { analysis.text == editor.text }))
+                                },
+                                readOnly = writable == null, highlight = highlight, wrap = wrap, fontSize = fontSize,
+                                focusRequester = focusRequester, onIndent = ::indentSelection, onUndo = ::undo, onRedo = ::redo,
+                                onFind = { showSearch = true }, onSave = save, modifier = Modifier.weight(1f).fillMaxWidth())
+                            val completions = if (writable != null && !showSearch && analysis.text == editor.text) editorCompletions(editor, language, analysis.words, analysis.spans) else emptyList()
+                            if (completions.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    completions.forEach { completion ->
+                                        SuggestionChip(onClick = { change(applyEditorCompletion(editor, completion)); focusRequester.requestFocus() }, label = { Text(completion.label, fontFamily = FontFamily.Monospace) })
+                                    }
                                 }
                             }
+                            val line = remember(editor.text, editor.selection.end) { editor.text.take(editor.selection.end).count { it == '\n' } + 1 }
+                            val column = editor.selection.end - editor.text.lastIndexOf('\n', editor.selection.end - 1)
+                            Text("${language.label} · ${filePreview?.charsetName.orEmpty()} · " + stringResource(R.string.editor_position, line, column),
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-
-                        markdown && markdownMode == "preview" -> {
-                            Text(
-                                text = stringResource(R.string.markdown_offline),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            )
-                            MarkdownPreview(editedText, Modifier.weight(1f).fillMaxWidth())
-                        }
-
-                        markdown && markdownMode == null -> {
-                            Box(Modifier.weight(1f).fillMaxWidth())
-                        }
-
-                        filePreview?.content != null -> {
-                            LineNumberEditor(
-                                text = editedText,
-                                onTextChange = { editedText = it },
-                                pathKey = bindKey,
-                                textStyle = editorStyle,
-                                gutterColor = gutterColor,
-                                visualTransformation = highlight,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                                focusRequester = focusRequester,
-                                readOnly = writable == null,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .absolutePadding(right = 12.dp, bottom = 12.dp)
-                            )
-                        }
-
-                        errorMessage != null -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = errorMessage,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
+                        errorMessage != null -> Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Text(errorMessage, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
         }
     }
     if (markdown && markdownMode == null && !isLoading) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(stringResource(R.string.markdown_open_title)) },
-            text = { Text(stringResource(R.string.markdown_open_message)) },
-            confirmButton = {
-                TextButton(onClick = { markdownMode = "preview" }) { Text(stringResource(R.string.markdown_preview)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { markdownMode = "edit" }) {
-                    Text(stringResource(if (writable != null) R.string.markdown_edit else R.string.markdown_source))
-                }
-            },
-        )
+        AlertDialog(onDismissRequest = onDismiss,
+            title = { Text(stringResource(R.string.markdown_open_title)) }, text = { Text(stringResource(R.string.markdown_open_message)) },
+            confirmButton = { TextButton(onClick = { markdownMode = "preview" }) { Text(stringResource(R.string.markdown_preview)) } },
+            dismissButton = { TextButton(onClick = { markdownMode = "edit" }) { Text(stringResource(if (writable != null) R.string.markdown_edit else R.string.markdown_source)) } })
+    }
+    if (showDiscard) {
+        AlertDialog(onDismissRequest = { showDiscard = false },
+            title = { Text(stringResource(R.string.editor_unsaved_title)) }, text = { Text(stringResource(R.string.editor_unsaved_message)) },
+            confirmButton = { TextButton(onClick = { showDiscard = false; onDismiss() }) { Text(stringResource(R.string.editor_discard)) } },
+            dismissButton = { TextButton(onClick = { showDiscard = false }) { Text(stringResource(R.string.editor_keep_editing)) } })
     }
 }
 
 @Composable
-private fun LineNumberEditor(
-    text: String,
-    onTextChange: (String) -> Unit,
-    pathKey: String?,
-    textStyle: TextStyle,
-    gutterColor: Color,
-    visualTransformation: VisualTransformation,
-    cursorColor: Color,
-    focusRequester: FocusRequester,
-    readOnly: Boolean,
-    modifier: Modifier = Modifier,
+private fun EditorSearchPanel(
+    query: String, onQuery: (String) -> Unit, replacement: String, onReplacement: (String) -> Unit,
+    matchCase: Boolean, onMatchCase: (Boolean) -> Unit, index: Int, count: Int, writable: Boolean,
+    onPrevious: () -> Unit, onNext: () -> Unit, onReplace: () -> Unit, onReplaceAll: () -> Unit, onClose: () -> Unit,
 ) {
-    val scroll = rememberScrollState()
-    val density = LocalDensity.current
-    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-    LaunchedEffect(pathKey) {
-        layoutResult = null
-        scroll.scrollTo(0)
-    }
-    val layout = layoutResult
-    val tops = remember(text, layout?.size, layout?.lineCount) {
-        val current = layout ?: return@remember FloatArray(0)
-        lineTopsPx(text, current)
-    }
-    val pad = 10.dp
-    val gutter = 52.dp
-    BoxWithConstraints(
-        modifier = modifier
-            .clip(AbsoluteRoundedCornerShape(topRight = 12.dp, bottomRight = 12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        val viewportPx = constraints.maxHeight
-        val padPx = with(density) { pad.toPx() }
-        val linePx = with(density) { textStyle.lineHeight.toPx() }
-        val textWidth = (maxWidth - gutter - pad).coerceAtLeast(1.dp)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scroll),
-            contentAlignment = AbsoluteAlignment.TopLeft
-        ) {
-            BasicTextField(
-                value = text,
-                onValueChange = onTextChange,
-                readOnly = readOnly,
-                modifier = Modifier
-                    .absolutePadding(left = gutter, right = pad, top = pad, bottom = pad)
-                    .width(textWidth)
-                    .focusRequester(focusRequester),
-                textStyle = textStyle,
-                visualTransformation = visualTransformation,
-                onTextLayout = { layoutResult = it },
-                cursorBrush = SolidColor(cursorColor)
-            )
-            val scrollPx = scroll.value
-            val numberStyle = textStyle.copy(color = gutterColor, textAlign = TextAlign.Right)
-            for (index in tops.indices) {
-                val y = padPx + tops[index]
-                if (y + linePx < scrollPx - linePx) continue
-                if (y > scrollPx + viewportPx + linePx) break
-                key(index) {
-                    Text(
-                        text = (index + 1).toString(),
-                        modifier = Modifier
-                            .offset(y = with(density) { y.toDp() })
-                            .width(gutter - 6.dp)
-                            .absolutePadding(right = 4.dp),
-                        textAlign = TextAlign.Right,
-                        style = numberStyle,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip
-                    )
-                }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(query, onQuery, Modifier.weight(1f), label = { Text(stringResource(R.string.editor_find)) },
+                placeholder = { Text("$index/$count") }, singleLine = true,
+                trailingIcon = { IconToggleButton(checked = matchCase, onCheckedChange = onMatchCase) { Text("Aa", color = if (matchCase) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) } })
+            IconButton(onClick = onPrevious, enabled = count > 0, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.ArrowUpward, stringResource(R.string.editor_previous)) }
+            IconButton(onClick = onNext, enabled = count > 0, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.ArrowDownward, stringResource(R.string.editor_next)) }
+            IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Close, stringResource(R.string.editor_close_find)) }
+        }
+        if (writable) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(replacement, onReplacement, Modifier.weight(1f), label = { Text(stringResource(R.string.editor_replace)) }, singleLine = true)
+                TextButton(onClick = onReplace, enabled = count > 0) { Text(stringResource(R.string.editor_replace)) }
+                TextButton(onClick = onReplaceAll, enabled = count > 0) { Text(stringResource(R.string.editor_replace_all)) }
             }
         }
+        Text("$index/$count", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 fun formatFileSize(size: Long): String {
     if (size <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt()
-    val index = digitGroups.coerceIn(0, units.size - 1)
-    val value = size / Math.pow(1024.0, index.toDouble())
-    return String.format(Locale.getDefault(), "%.2f %s", value, units[index])
+    val index = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+    return String.format(Locale.getDefault(), "%.2f %s", size / Math.pow(1024.0, index.toDouble()), units[index])
 }
 
-fun formatDate(timeMillis: Long): String {
-    if (timeMillis <= 0) return "-"
-    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-    return sdf.format(Date(timeMillis))
-}
+fun formatDate(timeMillis: Long): String = if (timeMillis <= 0) "-" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timeMillis))

@@ -53,13 +53,13 @@ internal fun logicalLineStartOffsets(text: String): IntArray {
     return starts
 }
 
-internal fun lineTopsPx(text: String, layout: TextLayoutResult): FloatArray {
-    val wrapped = softWrap(text)
+internal fun lineTopsPx(text: String, layout: TextLayoutResult, wrap: Boolean = true): FloatArray {
+    val mapping = if (wrap) softWrap(text).map else IntArray(text.length + 1) { it }
     val starts = logicalLineStartOffsets(text)
     val tops = FloatArray(starts.size)
     val last = if (layout.lineCount == 0) 0 else layout.getLineEnd(layout.lineCount - 1, false)
     for (index in starts.indices) {
-        val transformed = wrapped.map[starts[index].coerceIn(0, wrapped.map.lastIndex)]
+        val transformed = mapping[starts[index].coerceIn(0, mapping.lastIndex)]
         val line = layout.getLineForOffset(transformed.coerceIn(0, last))
         tops[index] = layout.getLineTop(line)
     }
@@ -98,6 +98,7 @@ internal class EditorVisualTransformation(
     private val property: Color = Color(0xFF5C9CCC),
     private val suppliedSpans: List<SourceSpan>? = null,
     private val suppliedText: String? = null,
+    private val wrap: Boolean = true,
 ) : VisualTransformation {
     private var cachedRaw: String? = null
     private var cachedResult: TransformedText? = null
@@ -105,7 +106,7 @@ internal class EditorVisualTransformation(
     override fun filter(text: AnnotatedString): TransformedText {
         val raw = text.text
         if (raw == cachedRaw) cachedResult?.let { return it }
-        val wrapped = softWrap(raw)
+        val wrapped = if (wrap) softWrap(raw) else SoftWrap(raw, IntArray(raw.length + 1) { it })
         val builder = AnnotatedString.Builder(wrapped.text)
         val spans = if (suppliedText != null) {
             if (suppliedText == raw) suppliedSpans.orEmpty() else emptyList()

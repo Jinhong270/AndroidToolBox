@@ -23,7 +23,7 @@ internal fun assistEditorChange(
     next: TextFieldValue,
     language: SourceLanguage,
     indent: String,
-    spans: List<SourceSpan> = sourceSpans(old.text, language),
+    spans: List<SourceSpan>? = null,
 ): TextFieldValue {
     if (old.text == next.text || next.composition != null || old.composition != null || language == SourceLanguage.PLAIN) return next
     val start = old.selection.min
@@ -32,8 +32,10 @@ internal fun assistEditorChange(
     if (insertedLength == 1 && next.selection.collapsed && next.selection.start == start + 1 &&
         next.text.regionMatches(0, old.text, 0, start) && next.text.substring(start + 1) == old.text.substring(end)) {
         val char = next.text[start]
-        val protected = spans.any { start > it.start && start < it.end && it.kind in setOf(SourceKind.COMMENT, SourceKind.STRING) } ||
-            spans.any { start == it.end && it.kind == SourceKind.COMMENT && old.text.getOrNull(start - 1) != '\n' }
+        if (char !in "\n()[]{}'\"") return next
+        val tokens = spans ?: sourceSpans(old.text, language)
+        val protected = tokens.any { start > it.start && start < it.end && it.kind in setOf(SourceKind.COMMENT, SourceKind.STRING) } ||
+            tokens.any { start == it.end && it.kind == SourceKind.COMMENT && old.text.getOrNull(start - 1) != '\n' }
         if (char == '\n') {
             val lineStart = old.text.lastIndexOf('\n', (start - 1).coerceAtLeast(-1)) + 1
             val before = old.text.substring(lineStart, start)
@@ -48,7 +50,7 @@ internal fun assistEditorChange(
         }
         if (protected) {
             if (old.selection.collapsed && char in "'\"" && old.text.getOrNull(start) == char &&
-                spans.any { it.kind == SourceKind.STRING && it.end == start + 1 }) {
+                tokens.any { it.kind == SourceKind.STRING && it.end == start + 1 }) {
                 return old.copy(selection = TextRange(start + 1), composition = null)
             }
             return next

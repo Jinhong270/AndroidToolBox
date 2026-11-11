@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <string name="file_visibility_settings">File visibility</string>
     <string name="hide_system_files">Automatically hide system hidden files</string>
     <string name="hide_user_files">Automatically hide user hidden files</string>
