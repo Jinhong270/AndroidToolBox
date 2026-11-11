@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -39,6 +40,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -271,7 +273,7 @@ fun FileEditorScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                                    .absolutePadding(right = 12.dp, bottom = 12.dp)
                             )
                         }
 
@@ -325,7 +327,7 @@ private fun LineNumberEditor(
     val gutter = 52.dp
     BoxWithConstraints(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(AbsoluteRoundedCornerShape(topRight = 12.dp, bottomRight = 12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         val viewportPx = constraints.maxHeight
@@ -335,13 +337,14 @@ private fun LineNumberEditor(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scroll)
+                .verticalScroll(scroll),
+            contentAlignment = AbsoluteAlignment.TopLeft
         ) {
             BasicTextField(
                 value = text,
                 onValueChange = onTextChange,
                 modifier = Modifier
-                    .padding(start = gutter, end = pad, top = pad, bottom = pad)
+                    .absolutePadding(left = gutter, right = pad, top = pad, bottom = pad)
                     .width(textWidth)
                     .focusRequester(focusRequester),
                 textStyle = textStyle,
@@ -350,7 +353,7 @@ private fun LineNumberEditor(
                 cursorBrush = SolidColor(cursorColor)
             )
             val scrollPx = scroll.value
-            val numberStyle = textStyle.copy(color = gutterColor, textAlign = TextAlign.End)
+            val numberStyle = textStyle.copy(color = gutterColor, textAlign = TextAlign.Right)
             for (index in tops.indices) {
                 val y = padPx + tops[index]
                 if (y + linePx < scrollPx - linePx) continue
@@ -361,8 +364,8 @@ private fun LineNumberEditor(
                         modifier = Modifier
                             .offset(y = with(density) { y.toDp() })
                             .width(gutter - 6.dp)
-                            .padding(end = 4.dp),
-                        textAlign = TextAlign.End,
+                            .absolutePadding(right = 4.dp),
+                        textAlign = TextAlign.Right,
                         style = numberStyle,
                         maxLines = 1,
                         softWrap = false,
