@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="markdown_open_title">打开 Markdown</string>
+    <string name="markdown_open_message">预览排版后的文档，或编辑源文件。</string>
+    <string name="markdown_preview">预览</string>
+    <string name="markdown_edit">编辑源码</string>
+    <string name="markdown_source">查看源码</string>
+    <string name="markdown_offline">离线预览 · 不加载外部图片</string>
+</resources>

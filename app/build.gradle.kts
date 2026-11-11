@@ -52,5 +52,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.commons.compress)
     implementation(libs.xz)
+    implementation("org.commonmark:commonmark:0.27.1")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.27.1")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.27.1")
+    implementation("org.commonmark:commonmark-ext-task-list-items:0.27.1")
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

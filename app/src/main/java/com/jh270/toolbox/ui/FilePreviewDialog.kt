@@ -28,11 +28,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +93,8 @@ fun FileEditorScreen(
     }
     val preview = filePreview
     val writable = preview?.takeIf { allowSave && it.editable && !it.truncated && it.content != null }
+    val markdown = preview?.let { isMarkdownFile(it.name) && it.content != null } == true
+    var markdownMode by remember(bindKey) { mutableStateOf<String?>(null) }
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(saveSuccessMessage) {
@@ -99,8 +103,8 @@ fun FileEditorScreen(
         }
     }
 
-    LaunchedEffect(bindKey, filePreview?.editable) {
-        if (filePreview?.editable == true) {
+    LaunchedEffect(bindKey, writable != null, markdownMode) {
+        if (writable != null && (!markdown || markdownMode == "edit")) {
             try {
                 focusRequester.requestFocus()
             } catch (_: IllegalStateException) {
@@ -140,6 +144,13 @@ fun FileEditorScreen(
                 title = filePreview?.name ?: if (isLoading) stringResource(R.string.opening_file) else stringResource(R.string.file_fallback),
                 onBack = onDismiss,
                 actions = {
+                    if (markdown && markdownMode != null) {
+                        TextButton(onClick = { markdownMode = if (markdownMode == "preview") "edit" else "preview" }) {
+                            Text(stringResource(if (markdownMode == "preview") {
+                                if (writable != null) R.string.markdown_edit else R.string.markdown_source
+                            } else R.string.markdown_preview))
+                        }
+                    }
                     if (filePreview?.content != null) {
                         IconButton(
                             onClick = {
@@ -260,6 +271,20 @@ fun FileEditorScreen(
                             }
                         }
 
+                        markdown && markdownMode == "preview" -> {
+                            Text(
+                                text = stringResource(R.string.markdown_offline),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                            MarkdownPreview(editedText, Modifier.weight(1f).fillMaxWidth())
+                        }
+
+                        markdown && markdownMode == null -> {
+                            Box(Modifier.weight(1f).fillMaxWidth())
+                        }
+
                         filePreview?.content != null -> {
                             LineNumberEditor(
                                 text = editedText,
@@ -270,6 +295,7 @@ fun FileEditorScreen(
                                 visualTransformation = highlight,
                                 cursorColor = MaterialTheme.colorScheme.primary,
                                 focusRequester = focusRequester,
+                                readOnly = writable == null,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -297,6 +323,21 @@ fun FileEditorScreen(
             }
         }
     }
+    if (markdown && markdownMode == null && !isLoading) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(stringResource(R.string.markdown_open_title)) },
+            text = { Text(stringResource(R.string.markdown_open_message)) },
+            confirmButton = {
+                TextButton(onClick = { markdownMode = "preview" }) { Text(stringResource(R.string.markdown_preview)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { markdownMode = "edit" }) {
+                    Text(stringResource(if (writable != null) R.string.markdown_edit else R.string.markdown_source))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -309,6 +350,7 @@ private fun LineNumberEditor(
     visualTransformation: VisualTransformation,
     cursorColor: Color,
     focusRequester: FocusRequester,
+    readOnly: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val scroll = rememberScrollState()
@@ -343,6 +385,7 @@ private fun LineNumberEditor(
             BasicTextField(
                 value = text,
                 onValueChange = onTextChange,
+                readOnly = readOnly,
                 modifier = Modifier
                     .absolutePadding(left = gutter, right = pad, top = pad, bottom = pad)
                     .width(textWidth)

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="markdown_open_title">Open Markdown</string>
+    <string name="markdown_open_message">Preview the formatted document or edit its source.</string>
+    <string name="markdown_preview">Preview</string>
+    <string name="markdown_edit">Edit source</string>
+    <string name="markdown_source">View source</string>
+    <string name="markdown_offline">Offline preview · External images are not loaded</string>
+</resources>
