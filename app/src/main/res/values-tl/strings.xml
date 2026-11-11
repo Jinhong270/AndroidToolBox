@@ -428,9 +428,11 @@
     <string name="agreement_7_p3">Pagkatapos mong sumang-ayon, mababasa mo muli ang mga tuntuning ito sa Mga setting, Tungkol sa proyektong ito.</string>
 
     <plurals name="domain_expires_in_days">
+        <item quantity="one">Papaso sa loob ng %d araw</item>
         <item quantity="other">Papaso sa loob ng %d araw</item>
     </plurals>
     <plurals name="domain_expired_days">
+        <item quantity="one">Paso na %d araw ang nakalipas</item>
         <item quantity="other">Paso na %d araw ang nakalipas</item>
     </plurals>
 </resources>

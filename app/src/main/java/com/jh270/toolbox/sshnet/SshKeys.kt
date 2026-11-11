@@ -15,7 +15,7 @@ import java.security.spec.ECPrivateKeySpec
 import java.security.spec.ECPublicKeySpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPrivateKeySpec
-import java.util.Base64
+import kotlin.io.encoding.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -199,8 +199,8 @@ internal object SshPrivateKeys {
         val algorithm = header.substringAfter(":").trim()
         val encryption = field(lines, "Encryption")
         val comment = field(lines, "Comment")
-        val publicBlob = Base64.getDecoder().decode(section(lines, "Public-Lines"))
-        var privateBlob = Base64.getDecoder().decode(section(lines, "Private-Lines"))
+        val publicBlob = Base64.decode(section(lines, "Public-Lines"))
+        var privateBlob = Base64.decode(section(lines, "Private-Lines"))
         val mac = field(lines, "Private-MAC")
         if (!encryption.equals("none", ignoreCase = true)) {
             if (passphrase.isNullOrEmpty()) throw IllegalArgumentException("private key is encrypted")
@@ -514,7 +514,7 @@ private fun cipher(transformation: String, mode: Int, key: ByteArray, iv: ByteAr
 private fun decodePemBody(text: String): ByteArray {
     val body = text.lines().filter { it.isNotBlank() && !it.startsWith("-----") && !it.contains(":") }.joinToString("")
     return try {
-        Base64.getDecoder().decode(body)
+        Base64.decode(body)
     } catch (_: IllegalArgumentException) {
         throw IllegalArgumentException("invalid privatekey")
     }

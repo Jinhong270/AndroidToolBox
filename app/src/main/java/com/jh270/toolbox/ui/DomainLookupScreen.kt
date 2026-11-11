@@ -229,6 +229,8 @@ private fun LoadingBlock() {
 @Composable
 private fun DomainResult(record: DomainRecord) {
     val context = LocalContext.current
+    val copiedSummary = stringResource(R.string.copied_summary)
+    val copiedRaw = stringResource(R.string.copied_raw)
     var showRaw by remember(record.raw) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         DomainTitle(record)
@@ -335,7 +337,7 @@ private fun DomainResult(record: DomainRecord) {
                     copyPlainText(
                         context,
                         context.domainSummary(record),
-                        context.getString(R.string.copied_summary)
+                        copiedSummary
                     )
                 }) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -369,7 +371,7 @@ private fun DomainResult(record: DomainRecord) {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    copyPlainText(context, record.raw, context.getString(R.string.copied_raw))
+                    copyPlainText(context, record.raw, copiedRaw)
                 }) {
                     Text(stringResource(R.string.action_copy))
                 }

@@ -428,9 +428,11 @@
     <string name="agreement_7_p3">सहमति के बाद आप ये शर्तें सेटिंग्स में, इस प्रोजेक्ट के बारे में के अंतर्गत फिर पढ़ सकते हैं।</string>
 
     <plurals name="domain_expires_in_days">
+        <item quantity="one">%d दिन में समाप्त होगा</item>
         <item quantity="other">%d दिन में समाप्त होगा</item>
     </plurals>
     <plurals name="domain_expired_days">
+        <item quantity="one">%d दिन पहले समाप्त हो गया</item>
         <item quantity="other">%d दिन पहले समाप्त हो गया</item>
     </plurals>
 </resources>

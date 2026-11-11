@@ -822,12 +822,13 @@ fun FileDetailDialog(
         confirmButton = {
             if (checksumResult != null) {
                 val currentHash = if (hashType == "MD5") checksumResult.md5 else checksumResult.sha256
+                val copiedHash = stringResource(R.string.copied_hash, hashType)
                 Button(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val clip = ClipData.newPlainText(hashType, currentHash)
                         clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, context.getString(R.string.copied_hash, hashType), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, copiedHash, Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text(stringResource(R.string.copy_hash, hashType))

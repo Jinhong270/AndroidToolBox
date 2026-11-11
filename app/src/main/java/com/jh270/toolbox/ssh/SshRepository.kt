@@ -1390,7 +1390,7 @@ class SshRepository(private val context: Context) {
             val base = root.absoluteFile
             root.walkTopDown().forEach { child ->
                 if (child == root) return@forEach
-                val rel = base.toPath().relativize(child.toPath()).toString().replace('\\', '/')
+                val rel = child.absoluteFile.relativeTo(base).invariantSeparatorsPath
                 val entryName = if (child.isDirectory) rel.trimEnd('/') + "/" else rel
                 tar.putEntry(entryName, if (child.isFile) child.length() else 0L, child.isDirectory)
                 if (child.isFile) child.inputStream().use { it.copyTo(tar) }
