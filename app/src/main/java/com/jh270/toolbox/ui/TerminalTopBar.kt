@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,17 +59,22 @@ internal fun TerminalTopBar(
                         .background(Color(0xFF10B981), CircleShape)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
+                Column(modifier = Modifier.weight(1f)) {
+                    AdaptiveTitleText(
                         text = title,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        minFontSize = 12.sp,
                         color = foreground
                     )
-                    Text(
+                    AdaptiveTitleText(
                         text = stringResource(R.string.terminal_subtitle),
-                        fontSize = 10.sp,
+                        style = TextStyle(fontSize = 10.sp, lineHeight = 14.sp),
+                        minFontSize = 9.sp,
                         color = dim
                     )
                 }

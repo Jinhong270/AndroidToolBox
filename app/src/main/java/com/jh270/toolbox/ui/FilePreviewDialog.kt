@@ -118,6 +118,7 @@ fun FileEditorScreen(
             ToolBoxScaffold(
                 title = (filePreview?.name ?: stringResource(if (isLoading) R.string.opening_file else R.string.file_fallback)) + if (dirty) " *" else "",
                 onBack = requestClose,
+                autoSizeTitle = true,
                 actions = {
                     if (markdown && markdownMode != null) {
                         TextButton(onClick = { markdownMode = if (markdownMode == "preview") "edit" else "preview" }) {

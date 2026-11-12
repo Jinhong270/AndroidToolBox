@@ -93,6 +93,7 @@ internal fun ToolBoxScaffold(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     containerColor: Color = MaterialTheme.colorScheme.background,
+    autoSizeTitle: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -113,11 +114,20 @@ internal fun ToolBoxScaffold(
                     },
                     title = {
                         Column {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (autoSizeTitle) {
+                                AdaptiveTitleText(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    minFontSize = 14.sp,
+                                    maxLines = 2
+                                )
+                            } else {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             if (subtitle != null) {
                                 Text(
                                     text = subtitle,
